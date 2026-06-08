@@ -535,19 +535,19 @@
 
   const SCENARIOS = [
     { name: "Preference: patients rank trials", blurb: "PREFERENCE objective: labs/genomics are pass/fail gates; the optimizer maximizes each patient's stated preference. Hungarian (total 26) beats greedy (21) by giving Eleanor her 2nd choice.", factory: preferenceDemo },
-    { name: "Balanced 3×3 (default)", blurb: "FIT objective: 3 patients, 3 single-slot trials. Trial B is contested, Trial C has no eligible patient. Shows a real trade-off + BELOW_THRESHOLD + NO_ELIGIBLE_PATIENT; greedy loses to optimal.", factory: () => mkState(basePatients(), [trialA(), trialB(), trialC()]) },
+    { name: "Balanced 3×3 (lab fit)", blurb: "FIT objective: 3 patients, 3 single-slot trials. Trial B is contested, Trial C has no eligible patient. Shows a real trade-off + BELOW_THRESHOLD + NO_ELIGIBLE_PATIENT; greedy loses to optimal.", factory: () => mkState(basePatients(), [trialA(), trialB(), trialC()]) },
     { name: "More patients than slots (3×2)", blurb: "Drop Trial C -> 2 slots for 3 patients. A surplus patient lands on a dummy = NO_SLOT_AVAILABLE.", factory: () => mkState(basePatients(), [trialA(), trialB()]) },
     { name: "More slots than patients (3×5)", blurb: "Trial B gets 3 slots -> 5 slots for 3 patients. Surplus slots report NO_PATIENT_AVAILABLE / NO_ELIGIBLE_PATIENT.", factory: () => mkState(basePatients(), [trialA(), trialB("NSCLC", 3), trialC()]) },
     { name: "Nobody eligible (wrong cancer type)", blurb: "All trials require CRC; every patient is NSCLC. Everyone -> INELIGIBLE_NO_TRIAL.", factory: () => mkState(basePatients(), [trialA("CRC"), trialB("CRC"), trialC("CRC")]) },
   ];
-  const DEFAULT_SCENARIO = "Balanced 3×3 (default)";
+  const DEFAULT_SCENARIO = "Preference: patients rank trials";
   function scenarioState(name) {
     const s = SCENARIOS.find((x) => x.name === name) || SCENARIOS[0];
     return s.factory();
   }
 
   // ---- persistence (localStorage; falls back to memory in node) ---- //
-  const STORE_KEY = "matching_playground_state_v1";
+  const STORE_KEY = "matching_playground_state_v2";  // bumped so the new default (preference) shows
   let _mem = null;
   function _ls() { try { return global.localStorage || null; } catch (e) { return null; } }
   const store = {
