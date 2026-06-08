@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Matching Playground</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div>
+          <h1>Matching Playground</h1>
+        </div>
+      </div>
+      <div class="view-toggle" role="tablist" aria-label="view mode">
+        <button id="viewSimple" class="vt-btn active">Simple</button>
+        <button id="viewAdvanced" class="vt-btn">Advanced</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- toolbar: seed / reset -->
+    <section class="toolbar card">
+      <div class="toolbar-left">
+        <label class="tb-label">Load example</label>
+        <select id="scenarioSelect" class="select"></select>
+        <button id="seedBtn" class="btn">Load</button>
+        <button id="resetBtn" class="btn btn-ghost" title="Restore the default seed">↺ Reset</button>
+      </div>
+      <p class="muted scenario-blurb" id="scenarioBlurb"></p>
+    </section>
+
+    <!-- PATIENTS -->
+    <section class="board-section">
+      <div class="section-head">
+        <h2>👤 Patients <span class="count" id="patientCount"></span></h2>
+        <button class="btn btn-add" id="addPatient">＋ Add patient</button>
+      </div>
+      <div class="card-grid" id="patientGrid"></div>
+    </section>
+
+    <!-- TRIALS -->
+    <section class="board-section">
+      <div class="section-head">
+        <h2>🔬 Trials <span class="count" id="trialCount"></span></h2>
+        <button class="btn btn-add" id="addTrial">＋ Add trial</button>
+      </div>
+      <div class="card-grid" id="trialGrid"></div>
+    </section>
+
+    <!-- FIELDS (advanced only) -->
+    <section class="board-section adv-only" id="fieldsSection">
+      <div class="section-head">
+        <h2>⚙️ Criteria fields <span class="count" id="fieldCount"></span></h2>
+        <button class="btn btn-add" id="addField">＋ Add field</button>
+      </div>
+      <p class="muted" style="margin:0 0 10px">Define the attributes patients carry and trials can require. Numeric fields use <em>range</em> to normalize the fit score; categorical = exact match; set = membership (e.g. genomics).</p>
+      <div class="card" id="fieldsCard"></div>
+    </section>
+
+    <!-- PARAMS (advanced only) -->
+    <section class="board-section adv-only" id="paramsSection">
+      <div class="card">
+        <div class="card-head"><h3>Scoring parameters</h3></div>
+        <label class="param-label">Match strictness — MIN_SCORE_THRESHOLD
+          <span class="val" id="thrVal">0.30</span></label>
+        <input type="range" id="threshold" min="0" max="1" step="0.05" value="0.3" />
+        <p class="hint">An assigned pair scoring below this is dropped as <span class="rc rc-below">BELOW_THRESHOLD</span>. Determinism: inputs pre-sorted by id; ties break by id.</p>
+      </div>
+    </section>
+
+    <!-- OPTIMIZATION MODE (always visible — Simple + Advanced) -->
+    <section class="board-section">
+      <div class="card">
+        <div class="switch-row" style="margin-top:0;padding-top:0;border-top:none">
+          <label class="switch"><input type="checkbox" id="thresholdAware" /><span class="slider"></span></label>
+          <div>
+            <div class="switch-label">Threshold-aware optimization</div>
+            <p class="hint" style="margin-top:2px">Keep the most patients matchable: hide below-threshold pairs from the optimizer <em>before</em> it solves, so it won't strand a patient on a slot it would only drop. <b>Off</b> = optimize raw fit then drop (the default).</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section class="board-section">
+      <div class="section-head"><h2>📊 Results</h2></div>
+      <div id="results"><div class="placeholder card">Loading…</div></div>
+    </section>
+  </main>
+
+  <!-- per-patient detail drawer -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <h2 id="drawerName">Patient</h2>
+        <span class="id-chip" id="drawerId"></span>
+      </div>
+      <button class="drawer-close" id="drawerClose" title="close">✕</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+
+  <script src="./engine.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
