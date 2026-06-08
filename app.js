@@ -1,6 +1,61 @@
 "use strict";
 
 // --------------------------------------------------------------------------- //
+// Access gate (hosted deployment only) — a LIGHTWEIGHT DETERRENT, not real security.
+// Static hosting can't hide the page source, so this only keeps casual visitors out.
+// Skipped on localhost/file:// so local development isn't gated. Stores only a hash.
+// --------------------------------------------------------------------------- //
+(function authGate() {
+  if (typeof window === "undefined" || typeof document === "undefined" || typeof location === "undefined") return;
+  var KEY = "mp_auth_v1";
+  var EXPECT = "c7b33ecd2083fbd035a5147091c1f5cf802822696407534f6ee81381f2c865e0"; // sha256(email\npassword)
+  var h = location.hostname;
+  if (h === "localhost" || h === "127.0.0.1" || h === "0.0.0.0" || h === "" || location.protocol === "file:") return;
+  try { if (localStorage.getItem(KEY) === EXPECT) return; } catch (e) { /* storage blocked -> still gate */ }
+  if (!(window.crypto && crypto.subtle)) return; // no SubtleCrypto (very old browser) -> don't lock out
+
+  function sha256Hex(str) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(str)).then(function (buf) {
+      return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+    });
+  }
+
+  var ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;z-index:99999;background:linear-gradient(120deg,#0f766e,#0d9488 55%,#14b8a6);display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif";
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:16px;box-shadow:0 12px 44px rgba(0,0,0,.25);padding:28px 26px;width:330px;max-width:90vw">' +
+      '<div style="font-size:30px;text-align:center">🧮</div>' +
+      '<h1 style="margin:6px 0 2px;font-size:18px;text-align:center;color:#1e293b">Matching Playground</h1>' +
+      '<p style="margin:0 0 16px;font-size:12px;text-align:center;color:#64748b">Sign in to continue</p>' +
+      '<input id="agEmail" type="email" placeholder="email" autocomplete="username" style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:9px;padding:10px 11px;font-size:14px;margin-bottom:9px" />' +
+      '<input id="agPass" type="password" placeholder="password" autocomplete="current-password" style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:9px;padding:10px 11px;font-size:14px;margin-bottom:12px" />' +
+      '<button id="agBtn" style="width:100%;border:none;background:#0d9488;color:#fff;padding:10px;border-radius:10px;font-size:14px;font-weight:650;cursor:pointer">Sign in</button>' +
+      '<p id="agErr" style="margin:10px 0 0;font-size:12px;color:#dc2626;text-align:center;min-height:14px"></p>' +
+    '</div>';
+  document.body.appendChild(ov);
+  document.documentElement.style.overflow = "hidden";
+
+  var email = ov.querySelector("#agEmail"), pass = ov.querySelector("#agPass"), btn = ov.querySelector("#agBtn"), err = ov.querySelector("#agErr");
+  email.focus();
+  function submit() {
+    err.textContent = "";
+    sha256Hex((email.value || "").trim().toLowerCase() + "\n" + (pass.value || "")).then(function (hex) {
+      if (hex === EXPECT) {
+        try { localStorage.setItem(KEY, EXPECT); } catch (e) { /* ignore */ }
+        document.documentElement.style.overflow = "";
+        ov.remove();
+      } else {
+        err.textContent = "Incorrect email or password.";
+        pass.value = ""; pass.focus();
+      }
+    });
+  }
+  btn.addEventListener("click", submit);
+  pass.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
+  email.addEventListener("keydown", function (e) { if (e.key === "Enter") pass.focus(); });
+})();
+
+// --------------------------------------------------------------------------- //
 // Constants (mirror pipeline.py)
 // --------------------------------------------------------------------------- //
 const OPS_FOR_KIND = {
