@@ -106,12 +106,62 @@ function updateBlurb() {
 // Render inputs
 // --------------------------------------------------------------------------- //
 function renderInputs() {
+  renderObjective();
   renderPatients();
   renderTrials();
+  renderPreferences();
   renderFields();
   $("#patientCount").textContent = `· ${state.patients.length}`;
   $("#trialCount").textContent = `· ${state.trials.length}`;
   $("#fieldCount").textContent = `· ${state.fields.length}`;
+}
+
+function isPreference() { return state.params.objective === "preference"; }
+
+function renderObjective() {
+  const pref = isPreference();
+  $("#objFit").classList.toggle("active", !pref);
+  $("#objPref").classList.toggle("active", pref);
+  $("#objHint").textContent = pref
+    ? "Labs/genomics are pass/fail GATES; the optimizer maximizes total stated preference. Any positive preference is matchable — only a patient with no preference for an available slot is left out (no score threshold)."
+    : "Labs GRADE the fit (Higher / Lower / Target…); tune per-criterion scoring in Advanced.";
+  // the normalized-score threshold + threshold-aware toggle don't apply to preference mode
+  $("#paramsSection").style.display = pref ? "none" : "";
+  $("#optSection").style.display = pref ? "none" : "";
+}
+
+function setObjective(obj) {
+  state.params.objective = obj;
+  renderInputs();
+  runAndRender();
+}
+
+function renderPreferences() {
+  const sec = $("#prefSection");
+  if (!isPreference()) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  const wrap = $("#prefMatrix"); wrap.innerHTML = "";
+  const tbl = el("table", { class: "mtx pref-table" });
+  const head = el("tr", {}, [el("th", {}, "patient \\ trial")]);
+  state.trials.forEach((t) => head.appendChild(el("th", {}, t.name)));
+  tbl.appendChild(head);
+  state.patients.forEach((p) => {
+    if (!p.preferences) p.preferences = {};
+    const tr = el("tr", {}, [el("td", { class: "rowhead" }, p.name)]);
+    state.trials.forEach((t) => {
+      const v = p.preferences[t.id];
+      tr.appendChild(el("td", {}, [el("input", {
+        type: "number", step: "1", min: "0", class: "pref-input", value: (v == null ? "" : v),
+        oninput: (e) => {
+          const n = parseFloat(e.target.value);
+          if (e.target.value === "" || isNaN(n)) delete p.preferences[t.id]; else p.preferences[t.id] = n;
+          scheduleSave();
+        },
+      })]));
+    });
+    tbl.appendChild(tr);
+  });
+  wrap.appendChild(tbl);
 }
 
 function attrInput(field, value, onChange) {
@@ -373,14 +423,26 @@ function closeDrawer() {
 }
 function fmtSet(v) { return Array.isArray(v) && v.length ? v.join(", ") : "(none)"; }
 
+function drawerPref(d, pi, ti) {
+  const raw = (d.patients_detail[pi].preferences || {})[d.trial_ids[ti]];
+  return (raw == null) ? 0 : raw;
+}
 function trialBlock(d, pi, ti, isAssigned) {
+  const pref = d.params && d.params.objective === "preference";
   const eligible = d.eligibility[pi][ti];
   const score = d.trial_score[pi][ti];
   const crits = d.criteria_detail[pi][ti];
   const badges = el("div", { class: "tblock-badges" });
   if (isAssigned) badges.appendChild(el("span", { class: "pill here" }, "matched here"));
   badges.appendChild(el("span", { class: "pill " + (eligible ? "elig" : "inelig") }, eligible ? "eligible" : "ineligible"));
-  if (eligible) badges.appendChild(el("span", { class: "pill fit" }, "fit " + score.toFixed(3)));
+  if (eligible) {
+    if (pref) {
+      const rp = drawerPref(d, pi, ti);
+      badges.appendChild(el("span", { class: "pill fit" }, rp > 0 ? ("♥ preference " + rp) : "no preference"));
+    } else {
+      badges.appendChild(el("span", { class: "pill fit" }, "fit " + score.toFixed(3)));
+    }
+  }
 
   const block = el("div", { class: "tblock" + (isAssigned ? " is-assigned" : "") }, [
     el("div", { class: "tblock-head" }, [el("div", { class: "tblock-name" }, d.trial_names[ti]), badges]),
@@ -411,7 +473,9 @@ function trialBlock(d, pi, ti, isAssigned) {
     const failed = crits.filter((c) => !c.passed && c.required !== false).length;
     block.appendChild(el("div", { class: "tblock-foot" }, `Ineligible — fails ${failed} required ${failed === 1 ? "criterion" : "criteria"}.`));
   } else if (!isAssigned) {
-    block.appendChild(el("div", { class: "tblock-foot" }, "Eligible here, but the optimizer placed this patient elsewhere (better global total) or the slot went to a stronger fit."));
+    block.appendChild(el("div", { class: "tblock-foot" }, pref
+      ? "Eligible, but the optimizer maximized the overall preference total — this slot went to someone who wanted it more, or this patient was placed in a trial they prefer."
+      : "Eligible here, but the optimizer placed this patient elsewhere (better global total) or the slot went to a stronger fit."));
   }
   return block;
 }
@@ -453,16 +517,18 @@ function fillDrawer(pid) {
     ]));
   }
 
-  // trial blocks: assigned first, then the rest by (eligible, fit) desc
+  // trial blocks: assigned first, then the rest by (eligible, then fit/preference) desc
+  const pref = d.params && d.params.objective === "preference";
+  const sortVal = (ti) => pref ? drawerPref(d, pi, ti) : d.trial_score[pi][ti];
   const assignedTi = assign ? d.trial_ids.indexOf(assign.trial_id) : -1;
   const others = d.trial_ids.map((_, ti) => ti).filter((ti) => ti !== assignedTi)
-    .sort((a, b) => (d.eligibility[pi][b] - d.eligibility[pi][a]) || (d.trial_score[pi][b] - d.trial_score[pi][a]));
+    .sort((a, b) => (d.eligibility[pi][b] - d.eligibility[pi][a]) || (sortVal(b) - sortVal(a)));
   if (assignedTi >= 0) {
     body.appendChild(el("div", { class: "dr-section-title" }, "Assigned trial — criterion by criterion"));
     body.appendChild(trialBlock(d, pi, assignedTi, true));
     body.appendChild(el("div", { class: "dr-section-title" }, "Trials it didn't go to"));
   } else {
-    body.appendChild(el("div", { class: "dr-section-title" }, "Every trial (best fit first)"));
+    body.appendChild(el("div", { class: "dr-section-title" }, pref ? "Every trial (most-preferred first)" : "Every trial (best fit first)"));
   }
   others.forEach((ti) => body.appendChild(trialBlock(d, pi, ti, false)));
 }
@@ -475,17 +541,26 @@ function metricsCard(d) {
   return el("div", { class: "metrics" }, [
     metric("Patients matched", String(d.assignments.length), `${d.unmatched.length} unassigned`, "good"),
     metric("Slots filled", `${filled}/${d.slot_labels.length}`, `${d.n_real_patients} patients · ${d.slot_labels.length} slots`),
-    metric("Optimal score", d.total_score.toFixed(3), "total fit (Hungarian)", "accent"),
+    (d.params.objective === "preference"
+      ? metric("Total preference", d.total_score.toFixed(3), "normalized (Hungarian)", "accent")
+      : metric("Optimal score", d.total_score.toFixed(3), "total fit (Hungarian)", "accent")),
     metric("Matrix size", `${d.n}×${d.n}`, `pad cost ${d.pad_cost.toFixed(2)}`),
   ]);
 }
 
 // --- kanban board: one column per trial, assigned patient cards beneath ---- //
 function ptAssigned(a) {
+  // in preference mode show the patient's RAW stated preference, not the normalized score
+  let num = a.score.toFixed(3);
+  if (state.lastResult && state.lastResult.params && state.lastResult.params.objective === "preference") {
+    const p = state.patients.find((x) => x.id === a.patient_id);
+    const raw = p && p.preferences ? p.preferences[a.trial_id] : undefined;
+    num = (raw == null) ? a.score.toFixed(2) : "♥ " + raw;
+  }
   return el("div", { class: "pt-card assigned clickable", onclick: () => openPatient(a.patient_id) }, [
     el("div", { class: "pt-top" }, [
       el("span", { class: "pt-name" }, a.patient_name),
-      el("span", { class: "pt-fit" }, a.score.toFixed(3)),
+      el("span", { class: "pt-fit" }, num),
     ]),
     el("div", { class: "pt-slot" }, a.slot_label),
     el("div", { class: "pt-bar" }, [el("span", { style: `width:${Math.min(100, a.score * 100)}%` })]),
@@ -634,6 +709,8 @@ function wire() {
   $("#addPatient").addEventListener("click", addPatient);
   $("#addTrial").addEventListener("click", addTrial);
   $("#addField").addEventListener("click", addField);
+  $("#objFit").addEventListener("click", () => setObjective("fit"));
+  $("#objPref").addEventListener("click", () => setObjective("preference"));
   $("#scenarioSelect").addEventListener("change", updateBlurb);
   $("#seedBtn").addEventListener("click", () => loadState(ENGINE.store.seed($("#scenarioSelect").value)));
   $("#resetBtn").addEventListener("click", () => loadState(ENGINE.store.reset()));

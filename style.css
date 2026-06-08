@@ -147,6 +147,17 @@ body:not(.advanced) .adv-only { display: none; }
 /* ===================== results ===================== */
 #results { display: flex; flex-direction: column; gap: 18px; }
 .mode-banner { background: var(--primary-l); border: 1px solid #99f6e4; color: var(--primary-d); border-radius: 10px; padding: 9px 13px; font-size: 13px; font-weight: 550; }
+
+/* objective segmented control */
+.obj-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.seg { display: inline-flex; background: #f1f5f9; border: 1px solid var(--line); border-radius: 999px; padding: 3px; flex: 0 0 auto; }
+.seg-btn { border: none; background: transparent; padding: 6px 16px; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.seg-btn.active { background: var(--primary); color: #fff; box-shadow: var(--shadow); }
+
+/* preference matrix */
+.pref-table td input.pref-input { width: 62px; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; font: inherit; text-align: center; background: #fff; }
+.pref-table td input.pref-input:focus { outline: 2px solid var(--primary-l); border-color: var(--primary); }
+.pref-table td { padding: 4px 6px; }
 .placeholder { color: var(--ink-soft); text-align: center; padding: 30px; }
 .error-card { border-color: var(--red); color: var(--red); background: #fef2f2; }
 

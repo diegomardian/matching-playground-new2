@@ -187,6 +187,22 @@
     return slots;
   }
 
+  function buildPreferenceScore(patients, trials, slots, eligibility) {
+    const trialIdx = {}; trials.forEach((t, i) => { trialIdx[t.id] = i; });
+    const raw = patients.map(() => slots.map(() => 0));
+    let mx = 0;
+    patients.forEach((p, pi) => slots.forEach((slot, si) => {
+      if (eligibility[pi][trialIdx[slot.trial_id]]) {
+        let v = asFloat((p.preferences || {})[slot.trial_id]);
+        if (v < 0) v = 0;
+        raw[pi][si] = v;
+        if (v > mx) mx = v;
+      }
+    }));
+    if (mx <= 0) mx = 1;
+    return raw.map((row) => row.map((v) => v / mx));
+  }
+
   function buildScoreMatrix(patients, trials, slots, eligibility, fields) {
     const trialById = {}; trials.forEach((t) => { trialById[t.id] = t; });
     const trialIdx = {}; trials.forEach((t, i) => { trialIdx[t.id] = i; });
@@ -271,11 +287,14 @@
     patients = patients.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     trials = trials.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const nP = patients.length;
-    const threshold = params.min_score_threshold;
+    // preference mode honors any positive preference -> threshold forced to 0 (see pipeline.py)
+    const threshold = params.objective === "preference" ? 0 : params.min_score_threshold;
 
     const [eligibility, failing] = buildEligibility(patients, trials, fields);
     const slots = expandSlots(trials);
-    const score = buildScoreMatrix(patients, trials, slots, eligibility, fields);
+    const score = params.objective === "preference"
+      ? buildPreferenceScore(patients, trials, slots, eligibility)
+      : buildScoreMatrix(patients, trials, slots, eligibility, fields);
 
     const optScore = params.threshold_aware
       ? score.map((row) => row.map((s) => (s >= threshold ? s : 0)))
@@ -301,9 +320,17 @@
       if (!eligible) {
         unmatched.push({ patient_id: p.id, patient_name: p.name, reason: INELIGIBLE_NO_TRIAL,
           detail: "passed the pre-filter for no trial (forced onto an ineligible slot)" });
-      } else if (s < threshold) {
-        unmatched.push({ patient_id: p.id, patient_name: p.name, reason: BELOW_THRESHOLD,
-          detail: `best available slot ${slot.label} scored ${fmt(s, 3)} < threshold ${fmt(threshold, 2)}` });
+      } else if (s < threshold || s <= 0) {
+        let detail;
+        if (params.objective === "preference") {
+          const wants = trials.some((t, ti) => eligibility[pi][ti] && asFloat((p.preferences || {})[t.id]) > 0);
+          detail = wants
+            ? "every trial this patient prefers was filled by patients who wanted it more"
+            : "this patient expressed no preference for any trial they qualify for";
+        } else {
+          detail = `best available slot ${slot.label} scored ${fmt(s, 3)} < threshold ${fmt(threshold, 2)}`;
+        }
+        unmatched.push({ patient_id: p.id, patient_name: p.name, reason: BELOW_THRESHOLD, detail: detail });
       } else {
         assignments.push({ patient_id: p.id, patient_name: p.name, trial_id: slot.trial_id, slot_label: slot.label, score: s });
         realFilled[ci] = pi;
@@ -372,7 +399,9 @@
       const f = fields[name];
       attrs[name] = coerceAttr(name in raw ? raw[name] : defaultValue(f.kind), f.kind);
     }
-    return { id: String(d.id).trim(), name: String(d.name || d.id).trim(), attrs: attrs };
+    const prefs = {}; const rawp = d.preferences || {};
+    for (const k of Object.keys(rawp)) { const n = Number(rawp[k]); prefs[String(k)] = isFinite(n) ? n : 0; }
+    return { id: String(d.id).trim(), name: String(d.name || d.id).trim(), attrs: attrs, preferences: prefs };
   }
   function criterionFromDict(d, fields) {
     const fieldName = String(d.field || "").trim();
@@ -408,6 +437,7 @@
     const params = {
       min_score_threshold: pr.min_score_threshold === undefined ? 0.3 : Number(pr.min_score_threshold),
       threshold_aware: Boolean(pr.threshold_aware),
+      objective: pr.objective === "preference" ? "preference" : "fit",
     };
     return { patients, trials, fields, params };
   }
@@ -417,10 +447,11 @@
     return {
       fields: Object.values(fields).map((f) => ({ name: f.name, label: f.label, kind: f.kind, unit: f.unit, norm_range: f.norm_range })),
       patients: patients.map((p) => ({ id: p.id, name: p.name,
-        attrs: Object.fromEntries(Object.keys(fields).map((k) => [k, (k in p.attrs) ? p.attrs[k] : defaultValue(fields[k].kind)])) })),
+        attrs: Object.fromEntries(Object.keys(fields).map((k) => [k, (k in p.attrs) ? p.attrs[k] : defaultValue(fields[k].kind)])),
+        preferences: Object.assign({}, p.preferences) })),
       trials: trials.map((t) => ({ id: t.id, name: t.name, slots: t.slots,
         criteria: t.criteria.map((c) => ({ field: c.field, op: c.op, value: c.value, value2: c.value2, scoring: c.scoring, required: c.required, weight: c.weight })) })),
-      params: { min_score_threshold: params.min_score_threshold, threshold_aware: params.threshold_aware },
+      params: { min_score_threshold: params.min_score_threshold, threshold_aware: params.threshold_aware, objective: params.objective },
     };
   }
   function assignPayload(a) { return { patient_id: a.patient_id, patient_name: a.patient_name, trial_id: a.trial_id, slot_label: a.slot_label, score: a.score }; }
@@ -433,13 +464,13 @@
       patient_ids: r.patients.map((p) => p.id),
       patient_names: r.patients.map((p) => p.name),
       fields: Object.values(r.fields).map((f) => ({ name: f.name, label: f.label, kind: f.kind, unit: f.unit })),
-      patients_detail: r.patients.map((p) => ({ id: p.id, name: p.name, attrs: p.attrs })),
+      patients_detail: r.patients.map((p) => ({ id: p.id, name: p.name, attrs: p.attrs, preferences: Object.assign({}, p.preferences) })),
       criteria_detail: r.patients.map((p) => r.trials.map((t) => pairCriteriaDetail(p, t, r.fields))),
       trial_score: r.patients.map((p) => r.trials.map((t) => pairScore(p, t, r.fields))),
       trial_ids: r.trials.map((t) => t.id),
       trial_names: r.trials.map((t) => t.name),
       slot_labels: r.slots.map((s) => s.label),
-      params: { min_score_threshold: r.params.min_score_threshold, threshold_aware: r.params.threshold_aware },
+      params: { min_score_threshold: r.params.min_score_threshold, threshold_aware: r.params.threshold_aware, objective: r.params.objective },
       eligibility: r.eligibility,
       failing_criteria: r.failing_criteria,
       score: r.score,
@@ -483,10 +514,28 @@
   const trialA = (cancer = "NSCLC", slots = 1) => ({ id: "T1", name: "Trial A", slots, criteria: [crit("cancer_type", "==", cancer), crit("genomics", "includes", EGFR), crit("hemoglobin", ">=", 10.0), crit("creatinine_clearance", ">=", 60.0)] });
   const trialB = (cancer = "NSCLC", slots = 1) => ({ id: "T2", name: "Trial B", slots, criteria: [crit("cancer_type", "==", cancer), crit("hemoglobin", ">=", 9.0), crit("creatinine_clearance", ">=", 30.0)] });
   const trialC = (cancer = "NSCLC", slots = 1) => ({ id: "T3", name: "Trial C", slots, criteria: [crit("cancer_type", "==", cancer), crit("genomics", "includes", KRAS), crit("hemoglobin", ">=", 12.0), crit("creatinine_clearance", ">=", 60.0)] });
-  const mkState = (patients, trials) => ({ fields: DEFAULT_FIELDS(), patients, trials, params: { min_score_threshold: 0.3, threshold_aware: false } });
+  const mkState = (patients, trials) => ({ fields: DEFAULT_FIELDS(), patients, trials, params: { min_score_threshold: 0.3, threshold_aware: false, objective: "fit" } });
+
+  const prefPatient = (pid, name, alts, hgb, prefs) => ({ id: pid, name, attrs: { cancer_type: "NSCLC", genomics: alts, hemoglobin: hgb, creatinine_clearance: 80 }, preferences: prefs });
+  const gate = (field, op, value) => ({ field, op, value, scoring: "gate" });
+  const preferenceDemo = () => ({
+    fields: DEFAULT_FIELDS(),
+    patients: [
+      prefPatient("P1", "Eleanor Hughes", [], 13.0, { T1: 10, T2: 9, T3: 1 }),
+      prefPatient("P2", "Marcus Bell", [], 11.0, { T1: 8, T2: 2, T3: 5 }),
+      prefPatient("P3", "Priya Nair", [KRAS], 12.0, { T1: 3, T2: 4, T3: 9 }),
+    ],
+    trials: [
+      { id: "T1", name: "Trial A", slots: 1, criteria: [gate("cancer_type", "==", "NSCLC")] },
+      { id: "T2", name: "Trial B", slots: 1, criteria: [gate("cancer_type", "==", "NSCLC")] },
+      { id: "T3", name: "Trial C", slots: 1, criteria: [gate("cancer_type", "==", "NSCLC"), gate("genomics", "includes", KRAS)] },
+    ],
+    params: { min_score_threshold: 0.0, threshold_aware: false, objective: "preference" },
+  });
 
   const SCENARIOS = [
-    { name: "Balanced 3×3 (default)", blurb: "3 patients, 3 single-slot trials. Trial B is contested, Trial C has no eligible patient. Shows a real trade-off + BELOW_THRESHOLD + NO_ELIGIBLE_PATIENT; greedy loses to optimal.", factory: () => mkState(basePatients(), [trialA(), trialB(), trialC()]) },
+    { name: "Preference: patients rank trials", blurb: "PREFERENCE objective: labs/genomics are pass/fail gates; the optimizer maximizes each patient's stated preference. Hungarian (total 26) beats greedy (21) by giving Eleanor her 2nd choice.", factory: preferenceDemo },
+    { name: "Balanced 3×3 (default)", blurb: "FIT objective: 3 patients, 3 single-slot trials. Trial B is contested, Trial C has no eligible patient. Shows a real trade-off + BELOW_THRESHOLD + NO_ELIGIBLE_PATIENT; greedy loses to optimal.", factory: () => mkState(basePatients(), [trialA(), trialB(), trialC()]) },
     { name: "More patients than slots (3×2)", blurb: "Drop Trial C -> 2 slots for 3 patients. A surplus patient lands on a dummy = NO_SLOT_AVAILABLE.", factory: () => mkState(basePatients(), [trialA(), trialB()]) },
     { name: "More slots than patients (3×5)", blurb: "Trial B gets 3 slots -> 5 slots for 3 patients. Surplus slots report NO_PATIENT_AVAILABLE / NO_ELIGIBLE_PATIENT.", factory: () => mkState(basePatients(), [trialA(), trialB("NSCLC", 3), trialC()]) },
     { name: "Nobody eligible (wrong cancer type)", blurb: "All trials require CRC; every patient is NSCLC. Everyone -> INELIGIBLE_NO_TRIAL.", factory: () => mkState(basePatients(), [trialA("CRC"), trialB("CRC"), trialC("CRC")]) },

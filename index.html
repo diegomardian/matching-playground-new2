@@ -33,6 +33,20 @@
       <p class="muted scenario-blurb" id="scenarioBlurb"></p>
     </section>
 
+    <!-- OBJECTIVE (always visible) -->
+    <section class="board-section">
+      <div class="card obj-card">
+        <div>
+          <div class="switch-label">Optimize for</div>
+          <p class="hint" id="objHint" style="margin-top:2px"></p>
+        </div>
+        <div class="seg" role="tablist" aria-label="objective">
+          <button id="objFit" class="seg-btn">Lab fit</button>
+          <button id="objPref" class="seg-btn">Preference</button>
+        </div>
+      </div>
+    </section>
+
     <!-- PATIENTS -->
     <section class="board-section">
       <div class="section-head">
@@ -49,6 +63,14 @@
         <button class="btn btn-add" id="addTrial">＋ Add trial</button>
       </div>
       <div class="card-grid" id="trialGrid"></div>
+    </section>
+
+    <!-- PREFERENCES (shown only when optimizing for preference) -->
+    <section class="board-section" id="prefSection" style="display:none">
+      <div class="section-head">
+        <h2>⭐ Preferences <span class="count">— each patient's preference for each trial (higher = wants it more; 0 = won't take it)</span></h2>
+      </div>
+      <div class="card"><div class="mtx-wrap" id="prefMatrix"></div></div>
     </section>
 
     <!-- FIELDS (advanced only) -->
@@ -73,7 +95,7 @@
     </section>
 
     <!-- OPTIMIZATION MODE (always visible — Simple + Advanced) -->
-    <section class="board-section">
+    <section class="board-section" id="optSection">
       <div class="card">
         <div class="switch-row" style="margin-top:0;padding-top:0;border-top:none">
           <label class="switch"><input type="checkbox" id="thresholdAware" /><span class="slider"></span></label>
