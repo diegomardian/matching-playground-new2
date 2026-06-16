@@ -447,8 +447,9 @@ function observeBoard(boardEl) {
   if (typeof IntersectionObserver === "undefined") return;
   boardObserver = new IntersectionObserver((entries) => {
     const e = entries[0];
-    const scrolledPast = !e.isIntersecting && e.boundingClientRect.top < 0;
-    $("#stickyAssign").classList.toggle("show", scrolledPast);
+    // show the pegged bar whenever the board is off-screen, whether it is above
+    // (scrolled past) or below (not yet reached) the viewport
+    $("#stickyAssign").classList.toggle("show", !e.isIntersecting);
   }, { threshold: 0 });
   boardObserver.observe(boardEl);
 }
