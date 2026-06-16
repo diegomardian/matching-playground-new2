@@ -456,10 +456,21 @@ function observeBoard(boardEl) {
 function updateSticky(d) {
   const bar = $("#stickyAssign"); bar.innerHTML = "";
   bar.appendChild(el("span", { class: "sa-label" }, "Assignments"));
-  const chips = el("div", { class: "sa-chips" });
-  if (d.assignments.length) d.assignments.forEach((a) => chips.appendChild(el("span", { class: "sa-chip", onclick: () => openPatient(a.patient_id) }, `${a.patient_name} → ${a.slot_label}`)));
-  else chips.appendChild(el("span", { class: "sa-chip muted" }, "none yet"));
-  bar.appendChild(chips);
+  const byAssign = {};
+  d.assignments.forEach((a) => (byAssign[a.trial_id] = byAssign[a.trial_id] || []).push(a));
+  const board = el("div", { class: "sa-board" });
+  d.trial_ids.forEach((tid, i) => {
+    const fill = d.trial_fill[tid] || { filled: 0, total: 0 };
+    const body = el("div", { class: "sa-col-b" });
+    (byAssign[tid] || []).forEach((a) => body.appendChild(el("span", { class: "sa-pt", onclick: () => openPatient(a.patient_id) }, a.patient_name)));
+    if (!(byAssign[tid] || []).length) body.appendChild(el("span", { class: "sa-pt open" }, "open"));
+    const full = fill.total > 0 && fill.filled === fill.total;
+    board.appendChild(el("div", { class: "sa-col" }, [
+      el("div", { class: "sa-col-h" }, [el("span", { class: "sa-col-nm" }, d.trial_names[i]), el("span", { class: "sa-col-ct" + (full ? " full" : "") }, `${fill.filled}/${fill.total}`)]),
+      body,
+    ]));
+  });
+  bar.appendChild(board);
   if (d.unmatched.length) bar.appendChild(el("span", { class: "sa-unmatched" }, `${d.unmatched.length} unmatched`));
   bar.appendChild(el("span", { class: "sa-mode" + (state.params.max_match ? " on" : "") }, state.params.max_match ? "maximal ✓" : "preference"));
 }
