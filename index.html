@@ -33,20 +33,6 @@
       <p class="muted scenario-blurb" id="scenarioBlurb"></p>
     </section>
 
-    <!-- OBJECTIVE (always visible) -->
-    <section class="board-section">
-      <div class="card obj-card">
-        <div>
-          <div class="switch-label">Optimize for</div>
-          <p class="hint" id="objHint" style="margin-top:2px"></p>
-        </div>
-        <div class="seg" role="tablist" aria-label="objective">
-          <button id="objFit" class="seg-btn">Lab fit</button>
-          <button id="objPref" class="seg-btn">Preference</button>
-        </div>
-      </div>
-    </section>
-
     <!-- PATIENTS -->
     <section class="board-section">
       <div class="section-head">
@@ -65,10 +51,10 @@
       <div class="card-grid" id="trialGrid"></div>
     </section>
 
-    <!-- PREFERENCES (shown only when optimizing for preference) -->
-    <section class="board-section" id="prefSection" style="display:none">
+    <!-- PREFERENCES -->
+    <section class="board-section" id="prefSection">
       <div class="section-head">
-        <h2>⭐ Preferences <span class="count">— each patient's preference for each trial (higher = wants it more; 0 = won't take it)</span></h2>
+        <h2>⭐ Preferences <span class="count">: each patient's preference for each trial (higher = wants it more; 0 = won't take it)</span></h2>
       </div>
       <div class="card"><div class="mtx-wrap" id="prefMatrix"></div></div>
     </section>
@@ -79,32 +65,8 @@
         <h2>⚙️ Criteria fields <span class="count" id="fieldCount"></span></h2>
         <button class="btn btn-add" id="addField">＋ Add field</button>
       </div>
-      <p class="muted" style="margin:0 0 10px">Define the attributes patients carry and trials can require. Numeric fields use <em>range</em> to normalize the fit score; categorical = exact match; set = membership (e.g. genomics).</p>
+      <p class="muted" style="margin:0 0 10px">Define the attributes patients carry and trials can require in their eligibility criteria. <em>categorical</em> = exact match (e.g. cancer type); <em>set</em> = membership (e.g. genomics); <em>numeric</em> = comparisons.</p>
       <div class="card" id="fieldsCard"></div>
-    </section>
-
-    <!-- PARAMS (advanced only) -->
-    <section class="board-section adv-only" id="paramsSection">
-      <div class="card">
-        <div class="card-head"><h3>Scoring parameters</h3></div>
-        <label class="param-label">Match strictness — MIN_SCORE_THRESHOLD
-          <span class="val" id="thrVal">0.30</span></label>
-        <input type="range" id="threshold" min="0" max="1" step="0.05" value="0.3" />
-        <p class="hint">An assigned pair scoring below this is dropped as <span class="rc rc-below">BELOW_THRESHOLD</span>. Determinism: inputs pre-sorted by id; ties break by id.</p>
-      </div>
-    </section>
-
-    <!-- OPTIMIZATION MODE (always visible — Simple + Advanced) -->
-    <section class="board-section" id="optSection">
-      <div class="card">
-        <div class="switch-row" style="margin-top:0;padding-top:0;border-top:none">
-          <label class="switch"><input type="checkbox" id="thresholdAware" /><span class="slider"></span></label>
-          <div>
-            <div class="switch-label">Threshold-aware optimization</div>
-            <p class="hint" style="margin-top:2px">Keep the most patients matchable: hide below-threshold pairs from the optimizer <em>before</em> it solves, so it won't strand a patient on a slot it would only drop. <b>Off</b> = optimize raw fit then drop (the default).</p>
-          </div>
-        </div>
-      </div>
     </section>
 
     <!-- RESULTS -->
@@ -127,7 +89,10 @@
     <div class="drawer-body" id="drawerBody"></div>
   </aside>
 
-  <script src="./engine.js"></script>
+  <!-- sticky assignment bar: stays visible at the bottom once the board scrolls out of view -->
+  <div class="sticky-assign" id="stickyAssign"></div>
+
+  <script src="./match-engine.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

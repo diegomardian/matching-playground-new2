@@ -301,3 +301,38 @@ table.mtx td.assigned-cell { outline: 3px solid var(--primary); outline-offset: 
 .crit-row.fail .cv { color: var(--red); font-weight: 600; }
 .tblock-none { font-size: 12px; color: var(--ink-soft); font-style: italic; }
 .tblock-foot { font-size: 11.5px; color: var(--ink-soft); margin-top: 8px; }
+.dr-altline { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 9px; padding: 8px 11px; font-size: 12.5px; margin-bottom: 14px; }
+
+/* ===================== OR (CNF) criteria editor ===================== */
+.crit-grp { border: 1px solid var(--line); border-radius: 9px; padding: 6px; margin: 6px 0; background: #fbfcfe; }
+.crit-cond { display: grid; grid-template-columns: 1fr 74px 1fr auto; gap: 5px; align-items: center; margin: 3px 0; }
+.crit-cond select, .crit-cond input { border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12px; min-width: 0; background: #fff; }
+.crit-cond .del-crit { border: none; background: transparent; color: var(--ink-soft); cursor: pointer; font-size: 13px; padding: 2px 4px; border-radius: 6px; }
+.crit-cond .del-crit:hover { color: var(--red); background: #fee2e2; }
+.or-tag { font-size: 10px; font-weight: 700; color: var(--amber); text-align: center; margin: 1px 0; letter-spacing: .03em; }
+.crit-add { margin-top: 4px; }
+.crit-add button { border: 1px dashed var(--line); background: #fff; color: var(--primary-d); border-radius: 7px; padding: 3px 9px; font-size: 11px; cursor: pointer; font-weight: 600; }
+.crit-add button:hover { border-color: var(--primary); background: var(--primary-l); }
+
+/* ===================== max-match toggle (in board card) ===================== */
+.maxmatch-row { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 14px; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; }
+.maxmatch-row .hint { margin: 0; }
+
+/* ===================== sticky assignment bar ===================== */
+.sticky-assign {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: none; align-items: center; gap: 10px; flex-wrap: nowrap;
+  padding: 9px 18px; background: rgba(255,255,255,.97); backdrop-filter: blur(6px);
+  border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgba(15,23,42,.10);
+  overflow-x: auto;
+}
+.sticky-assign.show { display: flex; }
+.sticky-assign .sa-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); flex: 0 0 auto; }
+.sticky-assign .sa-chips { display: flex; gap: 6px; flex-wrap: nowrap; min-width: 0; }
+.sticky-assign .sa-chip { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.sticky-assign .sa-chip.muted { background: #f1f5f9; border-color: var(--line); color: var(--ink-soft); cursor: default; }
+.sticky-assign .sa-chip:hover:not(.muted) { background: #d1fae5; }
+.sticky-assign .sa-unmatched { font-size: 12px; font-weight: 600; color: var(--amber); flex: 0 0 auto; }
+.sticky-assign .sa-mode { margin-left: auto; flex: 0 0 auto; font-size: 11px; font-weight: 700; color: var(--ink-soft); background: #f1f5f9; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.sticky-assign .sa-mode.on { background: var(--primary-l); color: var(--primary-d); }
+body { padding-bottom: 52px; }
