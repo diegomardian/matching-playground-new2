@@ -367,7 +367,43 @@
       [trial("T1", "Trial A", nsclc()), trial("T2", "Trial B", nsclc()), trial("T3", "Trial C", nsclc())]);
   }
 
+  // ---- pitch demo scenarios (eligibility via biomarker gates; preference = match quality) ---- //
+  // Demo 1 - Fill rate. Eligibility overlaps create contention. Greedy (a rules engine) grabs
+  // both P1 and P2's shared trial, strands a patient and leaves Trial B empty (2 of 3 filled);
+  // SphinxMatch routes P1 one seat over so all 3 patients enroll and all 3 trials fill.
+  function demoFill() {
+    return mkState(
+      [pat("P1", "P1", "NSCLC", ["EGFR", "ALK"], { T1: 8, T2: 8 }),
+       pat("P2", "P2", "NSCLC", ["EGFR", "KRAS"], { T1: 8, T3: 8 }),
+       pat("P3", "P3", "NSCLC", ["KRAS"], { T3: 8 })],
+      [trial("T1", "Trial A", grp(cond("genomics", "includes", "EGFR"))),
+       trial("T2", "Trial B", grp(cond("genomics", "includes", "ALK"))),
+       trial("T3", "Trial C", grp(cond("genomics", "includes", "KRAS")))]);
+  }
+  // Demo 2 - Cohort match quality. Everyone is eligible everywhere; scores are the preferences.
+  // Greedy hands P1 its single best trial (A=95) and strands the cohort (total 119); SphinxMatch
+  // gives P1 its near-tied 2nd choice (B=93), freeing A for P2, lifting the cohort to 195.
+  function demoCohort() {
+    return mkState(
+      [pat("P1", "P1", "NSCLC", ["EGFR"], { T1: 95, T2: 93, T3: 10 }),
+       pat("P2", "P2", "NSCLC", ["EGFR"], { T1: 90, T2: 12, T3: 11 }),
+       pat("P3", "P3", "NSCLC", ["EGFR"], { T1: 88, T2: 10, T3: 12 })],
+      [trial("T1", "Trial A", grp(cond("genomics", "includes", "EGFR"))),
+       trial("T2", "Trial B"), trial("T3", "Trial C")]);
+  }
+  // Demo 3 - Re-optimization. Demo 2 after P2 screen-fails Trial A (P2 loses the EGFR marker A
+  // requires). The board re-solves to P1->B, P3->A, P2->C: the patient who MOVES is P3, not the
+  // one who lost eligibility. Preserves 192 of 195, no human re-solve.
+  function demoReopt() {
+    const s = demoCohort();
+    s.patients[1].attrs.genomics = []; // P2 screen-fails Trial A
+    return s;
+  }
+
   const SCENARIOS = [
+    { name: "Demo 1 · Fill rate (no empty trials)", blurb: "Eligibility overlaps create contention. A rules engine flags P1 and P2 for the same trial, strands one patient and leaves Trial B empty (greedy fills 2 of 3). SphinxMatch routes P1 one seat over: all 3 patients enrolled, all 3 trials filled. Open Advanced to see greedy fill 2 vs SphinxMatch 3.", factory: demoFill },
+    { name: "Demo 2 · Cohort match quality", blurb: "Everyone fits Trial A best, but P2 and P3 fit little else. A best-match ranking gives P1 its top trial and strands the cohort (total 119). SphinxMatch gives P1 its near-tied 2nd choice, freeing A, lifting the cohort to 195 (about 64% better). Open Advanced for the greedy bars.", factory: demoCohort },
+    { name: "Demo 3 · Re-optimization (screen-fail)", blurb: "Demo 2 after P2 screen-fails Trial A (P2 loses the EGFR marker Trial A requires). The board re-solves to P1 to B, P3 to A, P2 to C: the patient who MOVES is P3, not the one who lost eligibility. Preserves 192 of 195, no human re-solve.", factory: demoReopt },
     { name: "1 · Equal preferences (baseline)", blurb: "All 3 patients are NSCLC and prefer every NSCLC trial equally (1). Baseline: the algorithm fills all three slots. Start here.", factory: scenario1 },
     { name: "2 · Diagnosis mismatch", blurb: "Priya is changed to Pancreas cancer. She qualifies for no NSCLC trial, so Priya goes unmatched and a trial slot is left open, and the engine recognizes the diagnosis change.", factory: scenario2 },
     { name: "3 · Personal preference (Trial B)", blurb: "All equal again, but Eleanor states a personal preference for Trial B (=2). The engine honors the greater preference: Eleanor → Trial B, Marcus → Trial A.", factory: scenario3 },
