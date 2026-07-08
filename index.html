@@ -31,6 +31,9 @@
       </div>
     </section>
 
+    <!-- INPUT SPLIT: patients/trials on the left, preferences on the right -->
+    <div class="split">
+    <div class="split-left">
     <!-- PATIENTS + TRIALS: collapsed shows a compact read-only summary; open to edit -->
     <details class="collapse-sec" id="patientsDetails">
       <summary>
@@ -53,7 +56,9 @@
         <div class="card-grid" id="trialGrid"></div>
       </div>
     </details>
+    </div><!-- /split-left -->
 
+    <div class="split-right">
     <!-- PREFERENCES -->
     <section class="board-section" id="prefSection">
       <div class="section-head">
@@ -61,6 +66,8 @@
       </div>
       <div class="card"><div class="mtx-wrap" id="prefMatrix"></div></div>
     </section>
+    </div><!-- /split-right -->
+    </div><!-- /split -->
 
     <!-- CRITERIA FIELDS (advanced only) -->
     <details class="collapse-sec adv-only" id="fieldsDetails">
