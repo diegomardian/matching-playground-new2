@@ -334,75 +334,10 @@ function renderError(msg) { $("#results").innerHTML = ""; $("#results").appendCh
 
 function renderResults(d) {
   const root = $("#results"); root.innerHTML = "";
-  root.appendChild(metricsCard(d));
-  const board = boardCard(d);
-  root.appendChild(board);
   root.appendChild(unassignedCard(d));
   if (state.view === "advanced") root.appendChild(greedyCard(d));
-  observeBoard(board);
   updateSticky(d);
   if (state.openPatientId) { if (d.patient_ids.includes(state.openPatientId)) fillDrawer(state.openPatientId); else closeDrawer(); }
-}
-
-function metric(label, num, sub, cls = "") { return el("div", { class: "metric " + cls }, [el("div", { class: "label" }, label), el("div", { class: "num" }, num), el("div", { class: "sub" }, sub)]); }
-function metricsCard(d) {
-  const filled = Object.values(d.trial_fill).reduce((a, v) => a + v.filled, 0);
-  const total = d.slot_labels.length;
-  return el("div", { class: "metrics" }, [
-    metric("Patients matched", String(d.count), `${d.unmatched.length} unmatched`, "good"),
-    metric("Slots filled", `${filled}/${total}`, `${d.patient_ids.length} patients`),
-    metric("Total preference", d.total_pref.toFixed(0), "summed over matches", "accent"),
-    metric("Maximal would enroll", String(d.max_count), d.max_count > d.val_count ? `vs ${d.val_count} on preference` : "same as preference", d.max_count > d.val_count ? "accent" : ""),
-  ]);
-}
-
-// ---- max-match toggle + kanban board ---- //
-function maxMatchControl(d) {
-  const note = d.max_count > d.val_count
-    ? `Maximal matching fills ${d.max_count} slots vs ${d.val_count} on preference alone; turning it ${state.params.max_match ? "off honors preferences" : "on enrolls more patients"}.`
-    : "On this input both plans enroll the same number; the toggle has no effect here.";
-  const sw = el("label", { class: "switch" }, [
-    el("input", { type: "checkbox", id: "maxMatchToggle", checked: state.params.max_match ? "" : null, onchange: (e) => { state.params.max_match = e.target.checked; runAndRender(); } }),
-    el("span", { class: "slider" }),
-  ]);
-  return el("div", { class: "maxmatch-row" }, [
-    sw,
-    el("div", {}, [el("div", { class: "switch-label" }, "Maximal matching"), el("p", { class: "hint", style: "margin-top:2px" }, note)]),
-  ]);
-}
-function ptAssigned(a) {
-  return el("div", { class: "pt-card assigned clickable", onclick: () => openPatient(a.patient_id) }, [
-    el("div", { class: "pt-top" }, [el("span", { class: "pt-name" }, a.patient_name), el("span", { class: "pt-fit" }, "♥ " + a.pref)]),
-    el("div", { class: "pt-slot" }, a.slot_label),
-  ]);
-}
-function ptEmpty(s) {
-  return el("div", { class: "pt-card empty" }, [
-    el("div", { class: "empty-label" }, "○ empty slot: " + s.slot_label),
-    el("span", { class: "rc " + (REASON_CLASS[s.reason] || "") }, s.reason),
-  ]);
-}
-function boardCard(d) {
-  const byAssign = {}, byEmpty = {};
-  d.assignments.forEach((a) => (byAssign[a.trial_id] = byAssign[a.trial_id] || []).push(a));
-  d.unfilled_slots.forEach((s) => (byEmpty[s.trial_id] = byEmpty[s.trial_id] || []).push(s));
-  const board = el("div", { class: "trial-board" });
-  d.trial_ids.forEach((tid, i) => {
-    const fill = d.trial_fill[tid] || { filled: 0, total: 0 };
-    const body = el("div", { class: "trial-col-body" });
-    (byAssign[tid] || []).forEach((a) => body.appendChild(ptAssigned(a)));
-    (byEmpty[tid] || []).forEach((s) => body.appendChild(ptEmpty(s)));
-    const full = fill.total > 0 && fill.filled === fill.total;
-    board.appendChild(el("div", { class: "trial-col" }, [
-      el("div", { class: "trial-col-head" }, [el("div", { class: "tc-name" }, d.trial_names[i]), el("div", { class: "tc-slots" + (full ? " full" : "") }, `${fill.filled}/${fill.total} slots filled`)]),
-      body,
-    ]));
-  });
-  return el("section", { class: "card", id: "boardCard" }, [
-    el("div", { class: "card-head" }, [el("h3", {}, "Assignments by trial")]),
-    maxMatchControl(d),
-    el("div", { class: "board-scroll" }, [board]),
-  ]);
 }
 
 function unassignedCard(d) {
@@ -440,39 +375,48 @@ function greedyCard(d) {
   ]);
 }
 
-// ---- sticky bottom assignment bar ---- //
-let boardObserver = null;
-function observeBoard(boardEl) {
-  if (boardObserver) boardObserver.disconnect();
-  if (typeof IntersectionObserver === "undefined") return;
-  boardObserver = new IntersectionObserver((entries) => {
-    const e = entries[0];
-    // show the pegged bar whenever the board is off-screen, whether it is above
-    // (scrolled past) or below (not yet reached) the viewport
-    $("#stickyAssign").classList.toggle("show", !e.isIntersecting);
-  }, { threshold: 0 });
-  boardObserver.observe(boardEl);
+// ---- pegged assignment dashboard (always visible at the bottom) ---- //
+function maxMatchToggle(d) {
+  const sw = el("label", { class: "switch" }, [
+    el("input", { type: "checkbox", checked: state.params.max_match ? "" : null, onchange: (e) => { state.params.max_match = e.target.checked; runAndRender(); } }),
+    el("span", { class: "slider" }),
+  ]);
+  const note = d.max_count > d.val_count
+    ? (state.params.max_match ? `on: enrolls ${d.max_count}` : `off: ${d.val_count} in, on would enroll ${d.max_count}`)
+    : "no effect on this input";
+  return el("div", { class: "sa-toggle" }, [sw,
+    el("div", { class: "sa-toggle-txt" }, [el("b", {}, "Maximal matching"), el("span", { class: "sa-toggle-note" }, note)])]);
 }
 function updateSticky(d) {
   const bar = $("#stickyAssign"); bar.innerHTML = "";
-  bar.appendChild(el("span", { class: "sa-label" }, "Assignments"));
-  const byAssign = {};
+  const filled = Object.values(d.trial_fill).reduce((a, v) => a + v.filled, 0);
+  const total = d.slot_labels.length;
+  // left: title + stat chips + max-match toggle
+  const stats = el("div", { class: "sa-stats" }, [
+    el("span", { class: "sa-stat good" }, [el("b", {}, String(d.count)), " matched"]),
+    el("span", { class: "sa-stat" }, [el("b", {}, `${filled}/${total}`), " slots"]),
+    el("span", { class: "sa-stat" }, [el("b", {}, d.total_pref.toFixed(0)), " pref"]),
+    d.unmatched.length ? el("span", { class: "sa-stat warn" }, [el("b", {}, String(d.unmatched.length)), " unmatched"]) : null,
+  ]);
+  bar.appendChild(el("div", { class: "sa-info" }, [el("div", { class: "sa-title" }, "Assignments"), stats, maxMatchToggle(d)]));
+  // right: one box per trial with its patient pills
+  const byAssign = {}, byEmpty = {};
   d.assignments.forEach((a) => (byAssign[a.trial_id] = byAssign[a.trial_id] || []).push(a));
+  d.unfilled_slots.forEach((s) => (byEmpty[s.trial_id] = byEmpty[s.trial_id] || []).push(s));
   const board = el("div", { class: "sa-board" });
   d.trial_ids.forEach((tid, i) => {
     const fill = d.trial_fill[tid] || { filled: 0, total: 0 };
-    const body = el("div", { class: "sa-col-b" });
-    (byAssign[tid] || []).forEach((a) => body.appendChild(el("span", { class: "sa-pt", onclick: () => openPatient(a.patient_id) }, a.patient_name)));
-    if (!(byAssign[tid] || []).length) body.appendChild(el("span", { class: "sa-pt open" }, "open"));
     const full = fill.total > 0 && fill.filled === fill.total;
+    const body = el("div", { class: "sa-col-b" });
+    (byAssign[tid] || []).forEach((a) => body.appendChild(el("span", { class: "sa-pt", title: "preference " + a.pref, onclick: () => openPatient(a.patient_id) },
+      [el("span", { class: "sa-pt-nm" }, a.patient_name), el("span", { class: "sa-pt-pref" }, "♥" + a.pref)])));
+    (byEmpty[tid] || []).forEach(() => body.appendChild(el("span", { class: "sa-pt open" }, "open")));
     board.appendChild(el("div", { class: "sa-col" }, [
       el("div", { class: "sa-col-h" }, [el("span", { class: "sa-col-nm" }, d.trial_names[i]), el("span", { class: "sa-col-ct" + (full ? " full" : "") }, `${fill.filled}/${fill.total}`)]),
       body,
     ]));
   });
   bar.appendChild(board);
-  if (d.unmatched.length) bar.appendChild(el("span", { class: "sa-unmatched" }, `${d.unmatched.length} unmatched`));
-  bar.appendChild(el("span", { class: "sa-mode" + (state.params.max_match ? " on" : "") }, state.params.max_match ? "maximal ✓" : "preference"));
 }
 
 // --------------------------------------------------------------------------- //

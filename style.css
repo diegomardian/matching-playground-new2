@@ -314,32 +314,56 @@ table.mtx td.assigned-cell { outline: 3px solid var(--primary); outline-offset: 
 .crit-add button { border: 1px dashed var(--line); background: #fff; color: var(--primary-d); border-radius: 7px; padding: 3px 9px; font-size: 11px; cursor: pointer; font-weight: 600; }
 .crit-add button:hover { border-color: var(--primary); background: var(--primary-l); }
 
-/* ===================== max-match toggle (in board card) ===================== */
-.maxmatch-row { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 14px; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; }
-.maxmatch-row .hint { margin: 0; }
+/* ===================== collapsible input sections (Patients / Trials) ===================== */
+.collapse-sec { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
+.collapse-sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; user-select: none; }
+.collapse-sec > summary::-webkit-details-marker { display: none; }
+.collapse-sec > summary .cs-title { font-size: 15px; font-weight: 650; display: inline-flex; align-items: center; gap: 7px; }
+.collapse-sec > summary .cs-title::before { content: "\25b8"; color: var(--primary); font-size: 12px; transition: transform .15s; }
+.collapse-sec[open] > summary .cs-title::before { transform: rotate(90deg); }
+.collapse-sec > summary .cs-hint { font-size: 11px; font-weight: 600; color: var(--primary-d); background: var(--primary-l); border-radius: 999px; padding: 2px 10px; }
+.collapse-sec[open] > summary { border-bottom: 1px solid var(--line); }
+.collapse-sec .cs-body { padding: 12px 14px 14px; }
+.collapse-sec .cs-body .btn-add { margin-bottom: 12px; }
 
-/* ===================== sticky assignment bar ===================== */
+/* ===================== pegged assignment dashboard (always visible) ===================== */
 .sticky-assign {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: none; align-items: center; gap: 12px; flex-wrap: nowrap;
-  padding: 7px 18px; background: rgba(255,255,255,.97); backdrop-filter: blur(6px);
-  border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgba(15,23,42,.10);
-  overflow: hidden;
+  display: flex; align-items: stretch; gap: 16px; flex-wrap: nowrap;
+  padding: 10px 20px; background: rgba(255,255,255,.98); backdrop-filter: blur(8px);
+  border-top: 2px solid var(--primary); box-shadow: 0 -6px 22px rgba(15,23,42,.12);
+  overflow: hidden; min-height: 96px;
 }
-.sticky-assign.show { display: flex; }
-.sticky-assign .sa-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); flex: 0 0 auto; }
-/* mini version of the "Assignments by trial" board: one small box per trial */
-.sticky-assign .sa-board { display: flex; gap: 8px; flex: 1 1 auto; min-width: 0; overflow-x: auto; padding-bottom: 1px; }
-.sticky-assign .sa-col { flex: 0 0 auto; background: #f8fafc; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; min-width: 96px; }
-.sticky-assign .sa-col-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.sticky-assign .sa-col-nm { font-size: 11px; font-weight: 700; color: var(--ink); white-space: nowrap; }
-.sticky-assign .sa-col-ct { font-size: 10px; color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.sticky-assign .sa-info { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 7px; padding-right: 16px; border-right: 1px solid var(--line); }
+.sticky-assign .sa-title { font-size: 13px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; color: var(--primary-d); }
+.sticky-assign .sa-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+.sticky-assign .sa-stat { font-size: 12px; color: var(--ink-soft); background: #f1f5f9; border-radius: 7px; padding: 3px 9px; white-space: nowrap; }
+.sticky-assign .sa-stat b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sticky-assign .sa-stat.good b { color: var(--green); }
+.sticky-assign .sa-stat.warn { background: #fff7ed; }
+.sticky-assign .sa-stat.warn b { color: var(--amber); }
+.sticky-assign .sa-toggle { display: flex; align-items: center; gap: 9px; }
+.sticky-assign .sa-toggle-txt { display: flex; flex-direction: column; line-height: 1.2; }
+.sticky-assign .sa-toggle-txt b { font-size: 12.5px; }
+.sticky-assign .sa-toggle-note { font-size: 10.5px; color: var(--ink-soft); }
+/* board: one box per trial with its patient pills */
+.sticky-assign .sa-board { display: flex; gap: 10px; flex: 1 1 auto; min-width: 0; overflow-x: auto; align-items: stretch; }
+.sticky-assign .sa-col { flex: 0 0 auto; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; min-width: 132px; display: flex; flex-direction: column; }
+.sticky-assign .sa-col-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.sticky-assign .sa-col-nm { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.sticky-assign .sa-col-ct { font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
 .sticky-assign .sa-col-ct.full { color: var(--green); font-weight: 700; }
-.sticky-assign .sa-col-b { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
-.sticky-assign .sa-pt { font-size: 11px; font-weight: 600; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-left-width: 3px; border-radius: 5px; padding: 1px 6px; white-space: nowrap; cursor: pointer; }
+.sticky-assign .sa-col-b { display: flex; flex-direction: column; gap: 5px; max-height: 68px; overflow-y: auto; }
+.sticky-assign .sa-pt { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 650; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-left: 4px solid var(--green); border-radius: 7px; padding: 4px 9px; white-space: nowrap; cursor: pointer; }
 .sticky-assign .sa-pt:hover { background: #d1fae5; }
-.sticky-assign .sa-pt.open { background: transparent; border: 1px dashed #cbd5e1; color: var(--ink-soft); cursor: default; font-weight: 500; font-style: italic; }
-.sticky-assign .sa-unmatched { font-size: 12px; font-weight: 600; color: var(--amber); flex: 0 0 auto; }
-.sticky-assign .sa-mode { margin-left: auto; flex: 0 0 auto; font-size: 11px; font-weight: 700; color: var(--ink-soft); background: #f1f5f9; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
-.sticky-assign .sa-mode.on { background: var(--primary-l); color: var(--primary-d); }
-body { padding-bottom: 84px; }
+.sticky-assign .sa-pt-pref { font-size: 11px; color: #047857; font-weight: 700; }
+.sticky-assign .sa-pt.open { justify-content: center; background: transparent; border: 1px dashed #cbd5e1; color: var(--ink-soft); cursor: default; font-weight: 500; font-style: italic; }
+body { padding-bottom: 116px; }
+
+/* ===================== compact demo spacing ===================== */
+.container { padding: 14px 20px 20px; }
+.board-section { margin-bottom: 14px; }
+.card { padding: 12px; }
+.toolbar { margin-bottom: 12px; }
+.section-head { margin-bottom: 8px; }
+.scenario-blurb { max-width: 620px; }

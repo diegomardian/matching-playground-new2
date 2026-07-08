@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Matching Playground</title>
+  <title>Matching Demo</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -11,7 +11,7 @@
     <div class="topbar-inner">
       <div class="brand">
         <div>
-          <h1>Matching Playground</h1>
+          <h1>Matching Demo</h1>
         </div>
       </div>
       <div class="view-toggle" role="tablist" aria-label="view mode">
@@ -25,36 +25,34 @@
     <!-- toolbar: seed / reset -->
     <section class="toolbar card">
       <div class="toolbar-left">
-        <label class="tb-label">Load example</label>
-        <select id="scenarioSelect" class="select"></select>
+        <select id="scenarioSelect" class="select" title="Load example scenario"></select>
         <button id="seedBtn" class="btn">Load</button>
-        <button id="resetBtn" class="btn btn-ghost" title="Restore the default seed">↺ Reset</button>
+        <button id="resetBtn" class="btn btn-ghost" title="Restore the default seed">↺</button>
       </div>
       <p class="muted scenario-blurb" id="scenarioBlurb"></p>
     </section>
 
-    <!-- PATIENTS -->
-    <section class="board-section">
-      <div class="section-head">
-        <h2>👤 Patients <span class="count" id="patientCount"></span></h2>
+    <!-- PATIENTS + TRIALS: collapsed by default, open to edit -->
+    <details class="collapse-sec" id="patientsDetails">
+      <summary><span class="cs-title">👤 Patients <span class="count" id="patientCount"></span></span><span class="cs-hint">edit</span></summary>
+      <div class="cs-body">
         <button class="btn btn-add" id="addPatient">＋ Add patient</button>
+        <div class="card-grid" id="patientGrid"></div>
       </div>
-      <div class="card-grid" id="patientGrid"></div>
-    </section>
+    </details>
 
-    <!-- TRIALS -->
-    <section class="board-section">
-      <div class="section-head">
-        <h2>🔬 Trials <span class="count" id="trialCount"></span></h2>
+    <details class="collapse-sec" id="trialsDetails">
+      <summary><span class="cs-title">🔬 Trials <span class="count" id="trialCount"></span></span><span class="cs-hint">edit</span></summary>
+      <div class="cs-body">
         <button class="btn btn-add" id="addTrial">＋ Add trial</button>
+        <div class="card-grid" id="trialGrid"></div>
       </div>
-      <div class="card-grid" id="trialGrid"></div>
-    </section>
+    </details>
 
     <!-- PREFERENCES -->
     <section class="board-section" id="prefSection">
       <div class="section-head">
-        <h2>⭐ Preferences <span class="count">: each patient's preference for each trial (higher = wants it more; 0 = won't take it)</span></h2>
+        <h2>⭐ Preferences <span class="count">: higher = wants it more; 0 = won't take it</span></h2>
       </div>
       <div class="card"><div class="mtx-wrap" id="prefMatrix"></div></div>
     </section>
