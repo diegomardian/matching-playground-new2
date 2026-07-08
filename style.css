@@ -325,11 +325,11 @@ table.mtx td.assigned-cell { outline: 3px solid var(--primary); outline-offset: 
 .collapse-sec > summary .cs-hint { font-size: 11px; font-weight: 600; color: var(--primary-d); background: var(--primary-l); border-radius: 999px; padding: 2px 10px; }
 .collapse-sec[open] > summary { border-bottom: 1px solid var(--line); }
 /* compact read-only preview: visible only while collapsed */
-.collapse-sec .cs-preview { display: flex; flex-wrap: wrap; gap: 6px; }
+.collapse-sec .cs-preview { display: flex; flex-wrap: wrap; gap: 8px; }
 .collapse-sec[open] > summary .cs-preview { display: none; }
-.cs-chip { font-size: 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px; white-space: nowrap; }
-.cs-chip b { font-weight: 700; color: var(--ink); }
-.cs-chip .cs-chip-sub { color: var(--ink-soft); }
+.cs-chip { flex: 1 1 220px; font-size: 14px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; white-space: normal; }
+.cs-chip b { font-weight: 700; color: var(--ink); font-size: 15.5px; }
+.cs-chip .cs-chip-sub { color: var(--ink-soft); font-size: 13.5px; }
 #patientPreview .cs-chip { border-left: 3px solid var(--primary); }
 #trialPreview .cs-chip { border-left: 3px solid #6366f1; }
 .collapse-sec .cs-body { padding: 12px 14px 14px; }
@@ -338,36 +338,36 @@ table.mtx td.assigned-cell { outline: 3px solid var(--primary); outline-offset: 
 /* ===================== pegged assignment dashboard (always visible) ===================== */
 .sticky-assign {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: flex; align-items: stretch; gap: 16px; flex-wrap: nowrap;
-  padding: 10px 20px; background: rgba(255,255,255,.98); backdrop-filter: blur(8px);
+  display: flex; align-items: stretch; gap: 18px; flex-wrap: nowrap;
+  padding: 12px 22px; background: rgba(255,255,255,.98); backdrop-filter: blur(8px);
   border-top: 2px solid var(--primary); box-shadow: 0 -6px 22px rgba(15,23,42,.12);
-  overflow: hidden; min-height: 96px;
+  overflow: hidden; min-height: 124px;
 }
-.sticky-assign .sa-info { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 7px; padding-right: 16px; border-right: 1px solid var(--line); }
-.sticky-assign .sa-title { font-size: 13px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; color: var(--primary-d); }
+.sticky-assign .sa-info { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding-right: 18px; border-right: 1px solid var(--line); }
+.sticky-assign .sa-title { font-size: 14px; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; color: var(--primary-d); }
 .sticky-assign .sa-stats { display: flex; gap: 8px; flex-wrap: wrap; }
-.sticky-assign .sa-stat { font-size: 12px; color: var(--ink-soft); background: #f1f5f9; border-radius: 7px; padding: 3px 9px; white-space: nowrap; }
-.sticky-assign .sa-stat b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.sticky-assign .sa-stat { font-size: 13px; color: var(--ink-soft); background: #f1f5f9; border-radius: 8px; padding: 4px 11px; white-space: nowrap; }
+.sticky-assign .sa-stat b { font-size: 17px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .sticky-assign .sa-stat.good b { color: var(--green); }
 .sticky-assign .sa-stat.warn { background: #fff7ed; }
 .sticky-assign .sa-stat.warn b { color: var(--amber); }
-.sticky-assign .sa-toggle { display: flex; align-items: center; gap: 9px; }
+.sticky-assign .sa-toggle { display: flex; align-items: center; gap: 10px; }
 .sticky-assign .sa-toggle-txt { display: flex; flex-direction: column; line-height: 1.2; }
-.sticky-assign .sa-toggle-txt b { font-size: 12.5px; }
-.sticky-assign .sa-toggle-note { font-size: 10.5px; color: var(--ink-soft); }
-/* board: one box per trial with its patient pills */
-.sticky-assign .sa-board { display: flex; gap: 10px; flex: 1 1 auto; min-width: 0; overflow-x: auto; align-items: stretch; }
-.sticky-assign .sa-col { flex: 0 0 auto; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 7px 9px; min-width: 132px; display: flex; flex-direction: column; }
-.sticky-assign .sa-col-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
-.sticky-assign .sa-col-nm { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; }
-.sticky-assign .sa-col-ct { font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.sticky-assign .sa-toggle-txt b { font-size: 13.5px; }
+.sticky-assign .sa-toggle-note { font-size: 11px; color: var(--ink-soft); }
+/* board: one box per trial with its patient pills; columns stretch to fill the width */
+.sticky-assign .sa-board { display: flex; gap: 12px; flex: 1 1 auto; min-width: 0; overflow-x: auto; align-items: stretch; }
+.sticky-assign .sa-col { flex: 1 1 0; min-width: 150px; background: #f8fafc; border: 1px solid var(--line); border-radius: 11px; padding: 9px 12px; display: flex; flex-direction: column; }
+.sticky-assign .sa-col-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+.sticky-assign .sa-col-nm { font-size: 15px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.sticky-assign .sa-col-ct { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
 .sticky-assign .sa-col-ct.full { color: var(--green); font-weight: 700; }
-.sticky-assign .sa-col-b { display: flex; flex-direction: column; gap: 5px; max-height: 68px; overflow-y: auto; }
-.sticky-assign .sa-pt { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 650; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-left: 4px solid var(--green); border-radius: 7px; padding: 4px 9px; white-space: nowrap; cursor: pointer; }
+.sticky-assign .sa-col-b { display: flex; flex-direction: column; gap: 6px; max-height: 100px; overflow-y: auto; }
+.sticky-assign .sa-pt { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 650; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; border-left: 4px solid var(--green); border-radius: 8px; padding: 7px 12px; white-space: nowrap; cursor: pointer; }
 .sticky-assign .sa-pt:hover { background: #d1fae5; }
-.sticky-assign .sa-pt-pref { font-size: 11px; color: #047857; font-weight: 700; }
+.sticky-assign .sa-pt-pref { font-size: 12.5px; color: #047857; font-weight: 700; }
 .sticky-assign .sa-pt.open { justify-content: center; background: transparent; border: 1px dashed #cbd5e1; color: var(--ink-soft); cursor: default; font-weight: 500; font-style: italic; }
-body { padding-bottom: 116px; }
+body { padding-bottom: 148px; }
 
 /* ===================== compact demo spacing ===================== */
 .container { padding: 14px 20px 20px; }
