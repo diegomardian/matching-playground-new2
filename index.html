@@ -29,12 +29,14 @@
         <button id="seedBtn" class="btn">Load</button>
         <button id="resetBtn" class="btn btn-ghost" title="Restore the default seed">↺</button>
       </div>
-      <p class="muted scenario-blurb" id="scenarioBlurb"></p>
     </section>
 
-    <!-- PATIENTS + TRIALS: collapsed by default, open to edit -->
+    <!-- PATIENTS + TRIALS: collapsed shows a compact read-only summary; open to edit -->
     <details class="collapse-sec" id="patientsDetails">
-      <summary><span class="cs-title">👤 Patients <span class="count" id="patientCount"></span></span><span class="cs-hint">edit</span></summary>
+      <summary>
+        <div class="cs-head"><span class="cs-title">👤 Patients <span class="count" id="patientCount"></span></span><span class="cs-hint">edit</span></div>
+        <div class="cs-preview" id="patientPreview"></div>
+      </summary>
       <div class="cs-body">
         <button class="btn btn-add" id="addPatient">＋ Add patient</button>
         <div class="card-grid" id="patientGrid"></div>
@@ -42,7 +44,10 @@
     </details>
 
     <details class="collapse-sec" id="trialsDetails">
-      <summary><span class="cs-title">🔬 Trials <span class="count" id="trialCount"></span></span><span class="cs-hint">edit</span></summary>
+      <summary>
+        <div class="cs-head"><span class="cs-title">🔬 Trials <span class="count" id="trialCount"></span></span><span class="cs-hint">edit</span></div>
+        <div class="cs-preview" id="trialPreview"></div>
+      </summary>
       <div class="cs-body">
         <button class="btn btn-add" id="addTrial">＋ Add trial</button>
         <div class="card-grid" id="trialGrid"></div>
@@ -57,15 +62,17 @@
       <div class="card"><div class="mtx-wrap" id="prefMatrix"></div></div>
     </section>
 
-    <!-- FIELDS (advanced only) -->
-    <section class="board-section adv-only" id="fieldsSection">
-      <div class="section-head">
-        <h2>⚙️ Criteria fields <span class="count" id="fieldCount"></span></h2>
+    <!-- CRITERIA FIELDS (advanced only) -->
+    <details class="collapse-sec adv-only" id="fieldsDetails">
+      <summary>
+        <div class="cs-head"><span class="cs-title">⚙️ Criteria fields <span class="count" id="fieldCount"></span></span><span class="cs-hint">edit</span></div>
+      </summary>
+      <div class="cs-body">
+        <p class="muted" style="margin:0 0 10px">Define the attributes patients carry and trials can require in their eligibility criteria. <em>categorical</em> = exact match (e.g. cancer type); <em>set</em> = membership (e.g. genomics); <em>numeric</em> = comparisons.</p>
         <button class="btn btn-add" id="addField">＋ Add field</button>
+        <div id="fieldsCard"></div>
       </div>
-      <p class="muted" style="margin:0 0 10px">Define the attributes patients carry and trials can require in their eligibility criteria. <em>categorical</em> = exact match (e.g. cancer type); <em>set</em> = membership (e.g. genomics); <em>numeric</em> = comparisons.</p>
-      <div class="card" id="fieldsCard"></div>
-    </section>
+    </details>
 
     <!-- RESULTS -->
     <section class="board-section">

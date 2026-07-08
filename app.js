@@ -103,6 +103,7 @@ function loadState(raw) {
   runAndRender();
 }
 function runAndRender() {
+  renderPreviews();
   const st = payload();
   if (!st.patients.length || !st.trials.length) { renderError("Add at least one patient and one trial."); return; }
   ENGINE.store.save(st);
@@ -121,8 +122,9 @@ function populateScenarios() {
   updateBlurb();
 }
 function updateBlurb() {
+  const b = $("#scenarioBlurb"); if (!b) return;
   const s = state.scenarios.find((x) => x.name === $("#scenarioSelect").value);
-  $("#scenarioBlurb").textContent = s ? s.blurb : "";
+  b.textContent = s ? s.blurb : "";
 }
 
 // --------------------------------------------------------------------------- //
@@ -133,9 +135,31 @@ function renderInputs() {
   renderTrials();
   renderPreferences();
   renderFields();
+  renderPreviews();
   $("#patientCount").textContent = `· ${state.patients.length}`;
   $("#trialCount").textContent = `· ${state.trials.length}`;
   $("#fieldCount").textContent = `· ${state.fields.length}`;
+}
+
+// compact read-only summaries shown on the collapsed Patients / Trials sections
+function renderPreviews() {
+  const pv = $("#patientPreview");
+  if (pv) {
+    pv.innerHTML = "";
+    state.patients.forEach((p) => {
+      const bits = state.fields.map((f) => { let v = p.attrs[f.name]; if (f.kind === "set") v = (Array.isArray(v) && v.length) ? v.join(", ") : ""; return v ? String(v) : ""; }).filter(Boolean);
+      pv.appendChild(el("span", { class: "cs-chip" }, [el("b", {}, p.name), bits.length ? el("span", { class: "cs-chip-sub" }, " " + bits.join(" · ")) : null]));
+    });
+  }
+  const tv = $("#trialPreview");
+  if (tv) {
+    tv.innerHTML = "";
+    state.trials.forEach((t) => {
+      const crit = (t.criteria || []).map((g) => (g.conds || []).map(condText).join(" OR ")).join(" AND ");
+      const slots = (t.slots > 1) ? `${t.slots} slots` : "1 slot";
+      tv.appendChild(el("span", { class: "cs-chip" }, [el("b", {}, t.name), el("span", { class: "cs-chip-sub" }, " " + (crit ? crit + " · " : "open · ") + slots)]));
+    });
+  }
 }
 
 function attrInput(field, value, onChange) {
@@ -335,7 +359,6 @@ function renderError(msg) { $("#results").innerHTML = ""; $("#results").appendCh
 function renderResults(d) {
   const root = $("#results"); root.innerHTML = "";
   root.appendChild(unassignedCard(d));
-  if (state.view === "advanced") root.appendChild(greedyCard(d));
   updateSticky(d);
   if (state.openPatientId) { if (d.patient_ids.includes(state.openPatientId)) fillDrawer(state.openPatientId); else closeDrawer(); }
 }
@@ -352,27 +375,6 @@ function unassignedCard(d) {
     inner.push(grid);
   }
   return el("section", { class: "card" }, inner);
-}
-
-// ---- SphinxMatch Optimizer vs greedy (advanced) ---- //
-function greedyCard(d) {
-  const opt = d.total_pref, greedy = d.greedy_total, max = Math.max(opt, greedy, 1e-9);
-  const bar = (label, val, cls) => el("div", { class: "gvo-row" }, [
-    el("div", { class: "gvo-label" }, label),
-    el("div", { class: "bar-track" }, [el("div", { class: "bar-fill " + cls, style: `width:${(val / max) * 100}%` })]),
-    el("div", { class: "gvo-val" }, val.toFixed(0)),
-  ]);
-  let callout;
-  if (d.count > d.greedy_count) callout = el("div", { class: "callout win" }, `SphinxMatch Optimizer enrolls ${d.count} vs greedy's ${d.greedy_count}. Greedy grabbed a locally-best pair that blocked a better global trade-off.`);
-  else if (opt > greedy + 1e-9) callout = el("div", { class: "callout win" }, `SphinxMatch Optimizer reaches ${opt.toFixed(0)} total preference vs greedy's ${greedy.toFixed(0)} (same headcount). Greedy's myopic picks cost overall preference.`);
-  else if (opt > 0 || greedy > 0) callout = el("div", { class: "callout tie" }, "Greedy ties the SphinxMatch Optimizer on this input. Try scenario 5 (with Maximal matching on) to see them diverge.");
-  else callout = el("div", { class: "callout none" }, "No eligible, preferred pairs exist, so both totals are 0.");
-  return el("section", { class: "card" }, [
-    el("div", { class: "card-head" }, [el("h3", {}, "SphinxMatch Optimizer vs. greedy")]),
-    el("p", { class: "hint", style: "margin:0 0 10px" }, "Greedy takes the single highest-preference pair at each step, then locks out that patient and slot. The SphinxMatch Optimizer instead solves for the best assignment across everyone at once."),
-    el("div", { class: "gvo" }, [bar("SphinxMatch", opt, "opt"), bar("Greedy", greedy, "greedy")]),
-    callout,
-  ]);
 }
 
 // ---- pegged assignment dashboard (always visible at the bottom) ---- //
