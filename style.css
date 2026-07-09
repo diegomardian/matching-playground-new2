@@ -38,7 +38,7 @@ em { color: var(--ink-soft); font-style: normal; font-weight: 600; }
 .vt-btn.active { background: #fff; color: var(--primary-d); box-shadow: var(--shadow); }
 
 /* ---- layout ---- */
-.container { max-width: 1240px; margin: 0 auto; padding: 22px 24px 40px; }
+.container { margin: 0 auto; padding: 22px 24px 40px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .board-section { margin-bottom: 26px; }
@@ -380,7 +380,7 @@ body { padding-bottom: 176px; }
 /* ===================== split: inputs left, preferences right ===================== */
 .split { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
 .split-left { flex: 1 1 56%; min-width: 0; }
-.split-right { flex: 1 1 44%; min-width: 0; }
+.split-right { min-width: 0; }
 .split-left .collapse-sec:last-child { margin-bottom: 0; }
 .split-right .board-section { margin-bottom: 0; }
 @media (max-width: 900px) { .split { flex-direction: column; } .split-left, .split-right { width: 100%; flex-basis: auto; } }
