@@ -19,16 +19,22 @@
         <button id="viewAdvanced" class="vt-btn">Advanced</button>
       </div>
     </div>
+    <nav class="engine-tabs" id="engineTabs" role="tablist" aria-label="engine version"></nav>
   </header>
 
   <main class="container">
-    <!-- toolbar: seed / reset -->
+    <!-- tab description -->
+    <p class="tab-desc" id="tabDesc"></p>
+
+    <!-- toolbar: seed / reset + engine params -->
     <section class="toolbar card">
       <div class="toolbar-left">
         <select id="scenarioSelect" class="select" title="Load example scenario"></select>
         <button id="seedBtn" class="btn">Load</button>
         <button id="resetBtn" class="btn btn-ghost" title="Restore the default seed">↺</button>
       </div>
+      <div class="toolbar-params" id="engineParams"></div>
+      <p class="scenario-blurb" id="scenarioBlurb"></p>
     </section>
 
     <!-- INPUT SPLIT: patients/trials on the left, preferences on the right -->
@@ -62,12 +68,25 @@
     <!-- PREFERENCES -->
     <section class="board-section" id="prefSection">
       <div class="section-head">
-        <h2>⭐ Preferences <span class="count">: higher = wants it more; 0 = won't take it</span></h2>
+        <h2 id="prefHeading">⭐ Preferences <span class="count">: higher = wants it more; 0 = won't take it</span></h2>
       </div>
       <div class="card"><div class="mtx-wrap" id="prefMatrix"></div></div>
     </section>
     </div><!-- /split-right -->
     </div><!-- /split -->
+
+    <!-- DIAGNOSIS URGENCY RULES (v4 · patient urgency only) -->
+    <details class="collapse-sec" id="rulesDetails" style="display:none">
+      <summary>
+        <div class="cs-head"><span class="cs-title">🚨 Diagnosis urgency rules <span class="count" id="ruleCount"></span></span><span class="cs-hint">edit</span></div>
+        <div class="cs-preview" id="rulesPreview"></div>
+      </summary>
+      <div class="cs-body">
+        <p class="muted" style="margin:0 0 10px">Derive patient urgency from diagnosis (e.g. <em>Cancer type = SCLC AND Stage = IV → Critical</em>). The <b>first matching rule wins</b>; a patient's manual urgency still applies when it is <em>higher</em> than the rule (escalation only, never a downgrade).</p>
+        <button class="btn btn-add" id="addRule">＋ Add rule</button>
+        <div id="rulesCard"></div>
+      </div>
+    </details>
 
     <!-- CRITERIA FIELDS (advanced only) -->
     <details class="collapse-sec adv-only" id="fieldsDetails">
@@ -105,6 +124,7 @@
   <div class="sticky-assign" id="stickyAssign"></div>
 
   <script src="./match-engine.js"></script>
+  <script src="./engines-v345.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

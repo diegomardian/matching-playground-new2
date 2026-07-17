@@ -388,3 +388,71 @@ body { padding-bottom: 176px; }
 #prefMatrix table.mtx { font-size: 13.5px; }
 #prefMatrix table.mtx th, #prefMatrix table.mtx td { padding: 7px 12px; }
 #prefMatrix .pref-input { width: 76px; padding: 7px 9px; font-size: 14px; }
+
+/* ---- engine version tabs ---- */
+.engine-tabs { max-width: 1240px; margin: 0 auto; padding: 0 24px 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.etab { border: 1px solid rgba(255,255,255,.35); background: rgba(255,255,255,.12); color: #fff; padding: 6px 14px; border-radius: 999px 999px 0 0; cursor: pointer; font-size: 13px; font-weight: 600; }
+.etab:hover { background: rgba(255,255,255,.22); }
+.etab.active { background: var(--bg); color: var(--primary-d); border-color: var(--bg); }
+.tab-desc { max-width: 1240px; margin: 14px 0 12px; color: var(--ink-soft); font-size: 13px; }
+
+/* ---- toolbar params + scenario blurb ---- */
+.toolbar-params { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.prm { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.prm-lbl { font-weight: 650; white-space: nowrap; }
+.prm input[type="range"] { width: 110px; accent-color: var(--primary); }
+.prm-val { color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 32px; }
+.prm-num { width: 64px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; font: inherit; }
+.scenario-blurb { flex-basis: 100%; margin: 4px 0 0; color: var(--ink-soft); font-size: 12.5px; }
+.scenario-blurb:empty { display: none; }
+
+/* ---- ranked top-3 picker (patient-choice tab) ---- */
+.choice-table td { padding: 6px 8px; }
+.choice-sel { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; background: #fff; color: var(--ink); min-width: 130px; }
+
+/* ---- patient urgency ---- */
+.urgency-sel { border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; background: #fff; color: var(--ink); }
+.u-low { color: #16a34a; } .u-medium { color: #d97706; } .u-high { color: #ea580c; } .u-critical { color: #dc2626; }
+.sa-pt-urg { font-size: 10px; margin-right: 2px; }
+.sa-col-exp { font-size: 11px; font-weight: 700; color: #b45309; background: #fef3c7; border-radius: 999px; padding: 1px 7px; margin-left: 6px; white-space: nowrap; }
+
+/* ---- Hungarian matrix card (v3+) ---- */
+.hmx { border-collapse: collapse; font-size: 12.5px; }
+.hmx th, .hmx td { border: 1px solid var(--line); padding: 6px 10px; text-align: center; white-space: nowrap; }
+.hmx th { background: #f8fafc; font-weight: 650; }
+.hmx th.hmx-unfilled { background: #fff7ed; }
+.hmx .rowhead { text-align: left; font-weight: 650; background: #f8fafc; }
+.hmx-exp { font-size: 10.5px; font-weight: 700; color: #b45309; background: #fef3c7; border-radius: 999px; padding: 1px 6px; margin-left: 6px; }
+.hmx-open { font-size: 10.5px; font-weight: 700; color: #9a3412; margin-left: 6px; }
+.hmx-urg { font-size: 10.5px; font-weight: 700; margin-left: 6px; text-transform: uppercase; }
+.hmx-dummyhead, .hmx-dummy { background: #f1f5f9; color: var(--ink-soft); }
+.hmx-cell { font-variant-numeric: tabular-nums; }
+.hmx-cell.hmx-blocked { color: #cbd5e1; background: #fafafa; }
+.hmx-cell.hmx-asn { background: var(--primary-l); color: var(--primary-d); font-weight: 800; box-shadow: inset 0 0 0 2px var(--primary); }
+
+/* ---- queue card (patient-choice tab) ---- */
+.queue-trials { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+.queue-trial { min-width: 280px; flex: 1; }
+.queue-title { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; color: var(--primary-d); }
+.queue-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 4px; background: #fff; font-size: 12.5px; }
+.queue-row.seated { background: var(--primary-l); border-color: var(--primary); }
+.queue-pos { font-weight: 800; color: var(--ink-soft); font-variant-numeric: tabular-nums; min-width: 24px; }
+.queue-nm { font-weight: 650; }
+.queue-nm.clickable { cursor: pointer; }
+.queue-nm.clickable:hover { text-decoration: underline; }
+.queue-rank { font-size: 11px; font-weight: 700; background: #e0e7ff; color: #3730a3; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+.queue-status { margin-left: auto; font-size: 11.5px; color: var(--ink-soft); white-space: nowrap; }
+.queue-status.ok { color: var(--primary-d); font-weight: 700; }
+.queue-btns { margin-left: 6px; display: flex; gap: 3px; }
+.queue-btn { border: 1px solid var(--line); background: #f8fafc; color: var(--ink); border-radius: 7px; cursor: pointer; font-size: 12px; padding: 1px 7px; line-height: 1.4; }
+.queue-btn:hover:not(:disabled) { background: var(--primary-l); border-color: var(--primary); }
+.queue-btn:disabled { opacity: .35; cursor: default; }
+.queue-empty { font-size: 12px; color: var(--ink-soft); font-style: italic; padding: 4px 0; }
+
+/* ---- diagnosis urgency rules (v4) ---- */
+.rule-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 8px; background: #fff; }
+.rule-when { font-weight: 700; font-size: 12px; color: var(--ink-soft); }
+.rule-arrow { font-weight: 700; font-size: 12px; color: #b45309; white-space: nowrap; }
+.rule-row .crit-cond { display: inline-flex; align-items: center; gap: 5px; }
+.rule-row select, .rule-row input { border: 1px solid var(--line); border-radius: 8px; padding: 4px 7px; font: inherit; font-size: 12.5px; background: #fff; }
+.rule-row input[type="text"], .rule-row input[type="number"] { width: 90px; }
