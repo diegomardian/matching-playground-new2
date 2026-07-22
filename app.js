@@ -78,7 +78,7 @@ const TABS = [
   { id: "v2", label: "v2 · Optimizer", engine: () => window.ENGINE, choice: false,
     desc: "The current engine: CNF eligibility gate → preference-only Hungarian assignment, with the value / maximal-matching toggle and the greedy comparison." },
   { id: "choice", label: "v2 · Patient choice", engine: () => window.ENGINES.v2choice, choice: true,
-    desc: "Same v2 algorithm, but preferences aren't typed in: each patient ranks up to 3 trials (like SphinxMatch patient selection) and scores derive from rank — 1st ♥3, 2nd ♥2, 3rd ♥1, unpicked 0 (won't take). Exact ties (e.g. everyone ranks the same trial 1st) break by each trial's own queue: patients join a trial's queue the moment they pick it, and the earlier joiner wins the seat." },
+    desc: "Same v2 algorithm, driven by the SphinxMatch selection flow: act as a patient, review recommended vs not-a-fit trials (with blocks/slots/queue info), and add up to 3 trials in order of preference. Adding a trial joins its queue for prescreening at that moment; scores derive from rank (1st ♥3, 2nd ♥2, 3rd ♥1, unpicked 0 = won't take) and exact ties break by each trial's own queue. Advanced view has a quick-edit rank table." },
   { id: "v2matrix", label: "v2 · Uneven matrix", engine: () => window.ENGINES.v2matrix, choice: false },
   { id: "v3", label: "v3 · Slot urgency", engine: () => window.ENGINES.v3, choice: true },
   { id: "v4", label: "v4 · Patient urgency", engine: () => window.ENGINES.v4, choice: true },
@@ -89,7 +89,7 @@ const CHOICE_FIELDS = () => [
   { name: "cancer_type", label: "Cancer type", kind: "categorical", unit: "" },
   { name: "genomics", label: "Genomics", kind: "set", unit: "" },
 ];
-const cpat = (id, name, choices) => ({ id, name, attrs: { cancer_type: "NSCLC", genomics: [] }, preferences: {}, choices });
+const cpat = (id, name, choices, genomics) => ({ id, name, attrs: { cancer_type: "NSCLC", genomics: genomics || [] }, preferences: {}, choices });
 const ctrial = (id, name) => ({ id, name, slots: 1, criteria: [{ conds: [{ field: "cancer_type", op: "==", value: "NSCLC", value2: null }] }] });
 const chState = (patients) => ({ fields: CHOICE_FIELDS(), patients, trials: [ctrial("T1", "Trial A"), ctrial("T2", "Trial B"), ctrial("T3", "Trial C")], params: { max_match: false } });
 const CHOICE_SCENARIOS = [
@@ -113,12 +113,26 @@ const CHOICE_SCENARIOS = [
       cpat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
       cpat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
       cpat("P3", "Priya Nair", ["T1", "T2", "T3"])]) },
+  { name: "5 · Mutation-specific trial (KRAS G12C)", blurb: "Trial C requires KRAS G12C and only Marcus carries it. All three rank A > B > C, but the optimizer routes Marcus to C — the only patient who can fill it — even though it's his 3rd choice. Eleanor and Priya have identical picks, an exact tie, so Trial A's queue decides between them (Eleanor joined first; reorder the queue to flip it). For Eleanor and Priya, Trial C shows under NOT A FIT, and C's nurse would ✕ fail them at prescreening.",
+    factory: () => ({
+      fields: CHOICE_FIELDS(),
+      patients: [
+        cpat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
+        cpat("P2", "Marcus Bell", ["T1", "T2", "T3"], ["KRAS G12C"]),
+        cpat("P3", "Priya Nair", ["T1", "T2", "T3"])],
+      trials: [ctrial("T1", "Trial A"), ctrial("T2", "Trial B"),
+        { id: "T3", name: "Trial C", slots: 1, criteria: [
+          { conds: [{ field: "cancer_type", op: "==", value: "NSCLC", value2: null }] },
+          { conds: [{ field: "genomics", op: "includes", value: "KRAS G12C", value2: null }] },
+        ] }],
+      params: { max_match: false },
+    }) },
 ];
 
 const state = {
   fields: [], patients: [], trials: [], params: { max_match: false }, urgency_rules: [],
   scenarios: [], view: "simple", lastResult: null, openPatientId: null,
-  tab: "v2",
+  tab: "v2", actAsId: null, // which patient the selection flow is "acting as"
 };
 
 function currentTab() { return TABS.find((t) => t.id === state.tab) || TABS[0]; }
@@ -222,6 +236,7 @@ function loadState(raw) {
   state.trials = raw.trials;
   state.params = raw.params || { max_match: false };
   state.urgency_rules = Array.isArray(raw.urgency_rules) ? raw.urgency_rules : [];
+  state.actAsId = null; // selection flow re-anchors to the first patient of the new state
   if (currentTab().choice) state.patients.forEach(ensureChoices);
   renderInputs();
   renderEngineParams();
@@ -233,7 +248,12 @@ function runAndRender() {
   const st = payload();
   if (!st.patients.length || !st.trials.length) { renderError("Add at least one patient and one trial."); return; }
   persist();
-  try { const { result } = currentEngine().match(st); state.lastResult = result; renderResults(result); renderPreviews(); }
+  try {
+    const { result } = currentEngine().match(st); state.lastResult = result; renderResults(result); renderPreviews();
+    // the selection flow shows result-derived info (eligibility, fill, blocks) — keep it in sync.
+    // safe to re-render: it's buttons/chips only, no text inputs to lose focus on.
+    if (currentTab().choice && state.view === "simple") renderPreferences();
+  }
   catch (e) { renderError("Could not compute: " + e.message); }
 }
 let saveTimer = null;
@@ -254,7 +274,8 @@ function applyTabChrome() {
   const tab = currentTab(), eng = currentEngine();
   $("#tabDesc").textContent = tab.desc || eng.tagline || "";
   const h = $("#prefHeading"); h.innerHTML = "";
-  if (tab.choice) { h.append("🎯 Top-3 choices "); h.appendChild(el("span", { class: "count" }, ": ranked picks auto-score ♥3 / ♥2 / ♥1; unpicked = 0 (won't take)")); }
+  if (tab.choice && state.view === "simple") { h.append("🧭 Patient selection "); h.appendChild(el("span", { class: "count" }, ": act as a patient · add up to 3 trials in order (1st ♥3 / 2nd ♥2 / 3rd ♥1) · adding joins that trial's queue")); }
+  else if (tab.choice) { h.append("🎯 Top-3 choices "); h.appendChild(el("span", { class: "count" }, ": quick-edit rank table · auto-scores ♥3 / ♥2 / ♥1; unpicked = 0 (won't take)")); }
   else { h.append("⭐ Preferences "); h.appendChild(el("span", { class: "count" }, ": higher = wants it more; 0 = won't take it")); }
 }
 function setTab(id) {
@@ -481,7 +502,10 @@ function renderTrials() {
 }
 
 function renderPreferences() {
-  if (currentTab().choice) { renderChoicePicker(); return; }
+  if (currentTab().choice) {
+    if (state.view === "simple") renderSelectionFlow(); else renderChoicePicker();
+    return;
+  }
   const wrap = $("#prefMatrix"); wrap.innerHTML = "";
   const tbl = el("table", { class: "mtx pref-table" });
   const head = el("tr", {}, [el("th", {}, "patient \\ trial")]);
@@ -525,6 +549,211 @@ function renderChoicePicker() {
   });
   wrap.appendChild(tbl);
   wrap.appendChild(el("p", { class: "hint" }, "Scores derive from rank automatically: 1st ♥3, 2nd ♥2, 3rd ♥1. Trials a patient doesn't pick score 0 — the engine never places them there. Picking a trial already used in another rank clears its previous slot."));
+}
+
+// ---- patient selection flow (choice tabs, simple view) ---- //
+// Mirrors the SphinxMatch app: act as one patient, review recommended vs not-a-fit
+// trials, and build an ORDERED selection (max 3). Adding a trial appends it as the
+// next choice and joins that trial's queue for prescreening at that moment.
+const ORDINAL = ["1st", "2nd", "3rd"];
+
+function addToSelection(p, tid) {
+  const sel = (p.choices || []).filter(Boolean);
+  if (sel.length >= 3 || sel.includes(tid)) return;
+  sel.push(tid); // next open choice, in order of adding
+  p.choices = sel;
+  ensureChoices(p); syncJoined(p); // joins the trial's queue now
+  runAndRender();
+}
+function removeFromSelection(p, tid) {
+  p.choices = (p.choices || []).filter(Boolean).filter((x) => x !== tid); // lower choices promote
+  ensureChoices(p); syncJoined(p); // leaves that trial's queue
+  runAndRender();
+}
+function moveSelection(p, i, dir) {
+  const sel = (p.choices || []).filter(Boolean);
+  const j = i + dir; if (j < 0 || j >= sel.length) return;
+  const t = sel[j]; sel[j] = sel[i]; sel[i] = t;
+  p.choices = sel; ensureChoices(p);
+  runAndRender(); // rank changed; queue join times intentionally untouched
+}
+
+// If this patient took a seat in trial t, how many OTHER waiting patients would
+// become unmatchable? A waiting patient can go to the trials they selected, or to
+// any trial they're eligible for if they haven't selected yet. Computed as the drop
+// in maximum bipartite matching when one seat of t is removed (Kuhn's algorithm).
+function blocksCount(p, t, d) {
+  const others = state.patients.filter((x) => x.id !== p.id && !x.enrolled); // enrolled patients are settled, not waiting
+  if (!others.length) return 0;
+  const caps = {}; state.trials.forEach((tr) => { caps[tr.id] = Math.max(0, Math.max(1, tr.slots || 1) - enrolledCount(tr.id)); });
+  const adj = others.map((pt) => {
+    const sel = (pt.choices || []).filter(Boolean);
+    const piX = d.patient_ids.indexOf(pt.id);
+    return state.trials.filter((tr) => {
+      const tiX = d.trial_ids.indexOf(tr.id);
+      const elig = piX >= 0 && tiX >= 0 && d.eligibility[piX][tiX];
+      return elig && !(pt.screenfails && pt.screenfails[tr.id]) && (sel.length ? sel.includes(tr.id) : true);
+    }).map((tr) => tr.id);
+  });
+  const matchSize = (capMap) => {
+    const slotIds = []; state.trials.forEach((tr) => { for (let i = 0; i < (capMap[tr.id] || 0); i++) slotIds.push(tr.id); });
+    const slotOf = Array(slotIds.length).fill(-1);
+    const tryAug = (i, seen) => {
+      for (let s = 0; s < slotIds.length; s++) {
+        if (seen[s] || adj[i].indexOf(slotIds[s]) < 0) continue;
+        seen[s] = true;
+        if (slotOf[s] < 0 || tryAug(slotOf[s], seen)) { slotOf[s] = i; return true; }
+      }
+      return false;
+    };
+    let m = 0;
+    for (let i = 0; i < others.length; i++) if (tryAug(i, Array(slotIds.length).fill(false))) m++;
+    return m;
+  };
+  const reduced = Object.assign({}, caps); reduced[t.id] = Math.max(0, reduced[t.id] - 1);
+  return Math.max(0, matchSize(caps) - matchSize(reduced));
+}
+
+function renderSelectionFlow() {
+  const wrap = $("#prefMatrix"); wrap.innerHTML = "";
+  if (!state.patients.length || !state.trials.length) { wrap.appendChild(el("p", { class: "muted" }, "Add at least one patient and one trial.")); return; }
+  if (!state.patients.some((x) => x.id === state.actAsId)) state.actAsId = state.patients[0].id;
+  const p = state.patients.find((x) => x.id === state.actAsId);
+  ensureChoices(p);
+  const d = state.lastResult;
+
+  // patient switcher
+  const chips = el("div", { class: "flow-patients" });
+  state.patients.forEach((pt) => {
+    ensureChoices(pt);
+    const n = pt.choices.filter(Boolean).length;
+    chips.appendChild(el("button", { class: "flow-pt" + (pt.id === state.actAsId ? " active" : "") + (pt.enrolled ? " done" : ""), onclick: () => { state.actAsId = pt.id; renderPreferences(); } },
+      [el("b", {}, pt.name), el("span", { class: "flow-pt-ct" }, pt.enrolled ? " ✓ enrolled" : ` ${n}/3`)]));
+  });
+  wrap.appendChild(chips);
+
+  // split layout: trial options on the left, the ordered selection panel on the right
+  const selected = p.choices.filter(Boolean);
+  const split = el("div", { class: "flow-split" });
+  const left = el("div", { class: "flow-left" });
+
+  // a result computed from the CURRENT state is needed for options/status; during a
+  // scenario load this renders before the solve, with lastResult still describing
+  // the old state. runAndRender re-renders the flow right after solving.
+  const fresh = d && d.patient_ids && d.trial_ids
+    && state.patients.every((x) => d.patient_ids.indexOf(x.id) >= 0)
+    && state.trials.every((x) => d.trial_ids.indexOf(x.id) >= 0);
+  const myAsn = fresh ? d.assignments.find((a) => a.patient_id === p.id) : null;
+
+  // right: the patient's selection as three explicit choice slots
+  const panel = el("div", { class: "flow-selpanel" });
+  panel.appendChild(el("div", { class: "selpanel-head" }, [el("b", {}, p.name + "'s selection"), el("span", { class: "count" }, p.enrolled ? " · enrolled" : ` · ${selected.length}/3`)]));
+  if (p.enrolled) {
+    const te = state.trials.find((x) => x.id === p.enrolled);
+    panel.appendChild(el("div", { class: "selslot enrolled" }, [
+      el("span", { class: "selslot-rank" }, "✓ enrolled"),
+      el("div", { class: "selslot-name" }, te ? te.name : p.enrolled),
+      el("div", { class: "selslot-seated" }, "passed prescreening · seat locked"),
+    ]));
+    panel.appendChild(el("p", { class: "selpanel-note" }, "Enrollment is final in this demo; load the scenario again to reset."));
+  } else [0, 1, 2].forEach((i) => {
+    const tid = selected[i];
+    const rank = el("span", { class: "selslot-rank" }, `${ORDINAL[i]} choice · ♥${CHOICE_SCORES[i]}`);
+    if (!tid) {
+      panel.appendChild(el("div", { class: "selslot empty" }, [rank, el("div", { class: "selslot-empty" }, "empty · add a trial from the list")]));
+      return;
+    }
+    const t = state.trials.find((x) => x.id === tid);
+    const q = t ? trialQueue(t) : [];
+    const qPos = q.findIndex((x) => x.p.id === p.id);
+    const slot = el("div", { class: "selslot" }, [
+      el("div", { class: "selslot-top" }, [rank, el("span", { class: "selslot-btns" }, [
+        el("button", { class: "sel-mv", title: "raise this choice", disabled: i === 0 ? "" : null, onclick: () => moveSelection(p, i, -1) }, "↑"),
+        el("button", { class: "sel-mv", title: "lower this choice", disabled: i === selected.length - 1 ? "" : null, onclick: () => moveSelection(p, i, 1) }, "↓"),
+        el("button", { class: "sel-rm", title: "remove (leaves this trial's queue; lower choices promote)", onclick: () => removeFromSelection(p, tid) }, "✕"),
+      ])]),
+      el("div", { class: "selslot-name" }, t ? t.name : tid),
+      el("div", { class: "selslot-q" }, qPos >= 0 ? `#${qPos + 1} of ${q.length} in ${t ? t.name : tid}'s queue` : ""),
+    ]);
+    if (myAsn && myAsn.trial_id === tid) slot.appendChild(el("div", { class: "selslot-seated" }, "✓ optimizer seats them here"));
+    panel.appendChild(slot);
+  });
+  if (!p.enrolled) panel.appendChild(el("p", { class: "selpanel-note" }, "Order = preference. Adding joins that trial's queue; removing leaves it and promotes lower choices."));
+
+  split.appendChild(left);
+  split.appendChild(panel);
+  wrap.appendChild(split);
+
+  // enrolled patients are done choosing — no options list, just the fact
+  if (p.enrolled) {
+    const te = state.trials.find((x) => x.id === p.enrolled);
+    left.appendChild(el("div", { class: "flow-enrolled" }, `✓ ${p.name} is enrolled in ${te ? te.name : p.enrolled} after passing prescreening. Their other queue spots were released.`));
+    return;
+  }
+
+  if (!fresh) { left.appendChild(el("p", { class: "muted" }, "Computing…")); return; }
+  const pi = d.patient_ids.indexOf(p.id);
+
+  const options = state.trials.map((t) => {
+    const ti = d.trial_ids.indexOf(t.id);
+    const gate = d.gate_detail[pi][ti];
+    const fill = d.trial_fill[t.id] || { filled: 0, total: Math.max(1, t.slots || 1) };
+    const q = trialQueue(t);
+    return { t, ti, gate, eligible: d.eligibility[pi][ti], fill, qLen: q.length,
+      qPos: q.findIndex((x) => x.p.id === p.id), selRank: selected.indexOf(t.id),
+      failedPS: !!(p.screenfails && p.screenfails[t.id]),
+      blocks: d.eligibility[pi][ti] ? blocksCount(p, t, d) : 0 };
+  });
+  const rec = options.filter((o) => o.eligible && !o.failedPS).sort((a, b) => a.blocks - b.blocks || a.qLen - b.qLen || a.ti - b.ti);
+  const bad = options.filter((o) => !o.eligible || o.failedPS);
+  const condChip = (c, ok) => el("span", { class: "tro-chip " + (ok ? "ok" : "fail") }, `${ok ? "✓" : "✕"} ${c.label} ${c.op_symbol} ${c.value}`);
+
+  const recSec = el("div", { class: "tro-sec" });
+  recSec.appendChild(el("div", { class: "tro-head rec" }, [el("b", {}, "RECOMMENDED"), el("span", {}, "open to this patient · ranked by who else stays matchable and by queue pressure")]));
+  rec.forEach((o) => {
+    const open = Math.max(0, o.fill.total - o.fill.filled);
+    const chips2 = el("span", { class: "tro-chips" });
+    if (!o.gate.groups.length) chips2.appendChild(el("span", { class: "tro-chip ok" }, "✓ open to all"));
+    o.gate.groups.forEach((g) => { const c = g.conds.find((x) => x.passed) || g.conds[0]; if (c) chips2.appendChild(condChip(c, true)); });
+    const full3 = selected.length >= 3;
+    const btn = o.selRank >= 0
+      ? el("button", { class: "tro-btn rm", title: "remove from selection (leaves this trial's queue)", onclick: () => removeFromSelection(p, o.t.id) }, `Selected · ${ORDINAL[o.selRank]} choice ✕`)
+      : el("button", { class: "tro-btn add", disabled: full3 ? "" : null, title: full3 ? "selection full (max 3) · remove one first" : "adds as the next choice and joins this trial's queue", onclick: () => addToSelection(p, o.t.id) }, "Add to selection");
+    const side = el("div", { class: "tro-side" }, [
+      o.blocks > 0 ? el("span", { class: "tro-badge warn" }, `⚠ blocks ${o.blocks}`) : el("span", { class: "tro-badge ok" }, "✓ blocks no one"),
+      el("span", { class: "tro-meta" }, `${open}/${o.fill.total} slot${o.fill.total > 1 ? "s" : ""} open`),
+      el("span", { class: "tro-meta" }, o.qPos >= 0 ? `#${o.qPos + 1} of ${o.qLen} in queue` : (o.qLen ? `${o.qLen} in queue` : "queue empty")),
+    ]);
+    if (engineFeatures().slotUrgency && o.t.expires_days != null) side.insertBefore(el("span", { class: "tro-meta exp" }, `⏳ expires ${o.t.expires_days}d`), side.children[1]);
+    side.appendChild(btn);
+    recSec.appendChild(el("div", { class: "tro-card" + (o.selRank >= 0 ? " sel" : "") }, [
+      el("div", { class: "tro-main" }, [
+        el("div", { class: "tro-name" }, o.t.name),
+        el("div", { class: "tro-sub" }, [document.createTextNode("Matched on "), chips2]),
+      ]),
+      side,
+    ]));
+  });
+  left.appendChild(recSec);
+
+  if (bad.length) {
+    const badSec = el("div", { class: "tro-sec" });
+    badSec.appendChild(el("div", { class: "tro-head bad" }, [el("b", {}, "NOT A FIT"), el("span", {}, "shown for awareness · a required criterion did not pass, or prescreening failed")]));
+    bad.forEach((o) => {
+      const chips2 = el("span", { class: "tro-chips" });
+      if (o.failedPS) chips2.appendChild(el("span", { class: "tro-chip fail" }, "✕ screen-failed at prescreening"));
+      o.gate.groups.filter((g) => !g.passed).forEach((g) => { const c = g.conds[0]; if (c) chips2.appendChild(condChip(c, false)); });
+      badSec.appendChild(el("div", { class: "tro-card notfit" }, [
+        el("div", { class: "tro-main" }, [
+          el("div", { class: "tro-name" }, o.t.name),
+          el("div", { class: "tro-sub" }, [document.createTextNode("Failed "), chips2]),
+        ]),
+      ]));
+    });
+    left.appendChild(badSec);
+  }
+
+  wrap.appendChild(el("p", { class: "hint" }, "Suggestions only: nothing is assigned until the optimizer runs on the selections. “Blocks N” = seating this patient there would leave N other waiting patients unmatchable (judged by their selections, or by eligibility if they haven't selected yet). The Advanced view has a quick-edit rank table."));
 }
 
 // ---- fields manager (advanced) ---- //
@@ -641,18 +870,26 @@ function setView(v) {
   $("#viewSimple").classList.toggle("active", v === "simple");
   $("#viewAdvanced").classList.toggle("active", v === "advanced");
   renderTrials();
+  applyTabChrome();
+  renderPreferences(); // choice tabs swap between selection flow (simple) and rank table (advanced)
   if (state.lastResult) renderResults(state.lastResult);
 }
 
 // --------------------------------------------------------------------------- //
 // Results
 // --------------------------------------------------------------------------- //
-function renderError(msg) { $("#results").innerHTML = ""; $("#results").appendChild(el("div", { class: "card error-card" }, "⚠ " + msg)); }
+function renderError(msg) { $("#queueSection").style.display = "none"; $("#queuePanel").innerHTML = ""; $("#results").innerHTML = ""; $("#results").appendChild(el("div", { class: "card error-card" }, "⚠ " + msg)); }
 
 function renderResults(d) {
+  // trial queues render in their own section ABOVE the results panel
+  const qsec = $("#queueSection"), qpanel = $("#queuePanel");
+  const showQueues = currentTab().choice;
+  qsec.style.display = showQueues ? "" : "none";
+  qpanel.innerHTML = "";
+  if (showQueues) qpanel.appendChild(queueCard(d));
+
   const root = $("#results"); root.innerHTML = "";
   root.appendChild(unassignedCard(d));
-  if (currentTab().choice) root.appendChild(queueCard(d));
   if (d.matrix_view) root.appendChild(matrixCard(d.matrix_view));
   updateSticky(d);
   if (state.openPatientId) { if (d.patient_ids.includes(state.openPatientId)) fillDrawer(state.openPatientId); else closeDrawer(); }
@@ -674,6 +911,22 @@ function unassignedCard(d) {
 
 // ---- queue card (patient-choice tab): per-trial FCFS tiebreak made visible ---- //
 const RANK_LABEL = ["1st ♥3", "2nd ♥2", "3rd ♥1"];
+const enrolledCount = (tid) => state.patients.filter((x) => x.enrolled === tid).length;
+
+// ---- prescreening simulation: the front of each queue gets prescreened ---- //
+function prescreenPass(p, t) {
+  p.enrolled = t.id;       // seat is taken — a fact, locked in every future solve
+  p.choices = [t.id];      // withdraws from all other queues
+  ensureChoices(p); syncJoined(p);
+  runAndRender();
+}
+function prescreenFail(p, t) {
+  if (!p.screenfails) p.screenfails = {};
+  p.screenfails[t.id] = true; // out of THIS trial for good; other choices promote
+  p.choices = (p.choices || []).filter(Boolean).filter((x) => x !== t.id);
+  ensureChoices(p); syncJoined(p);
+  runAndRender();
+}
 function moveInQueue(t, idx, dir) {
   const q = trialQueue(t);
   const j = idx + dir;
@@ -686,31 +939,45 @@ function queueCard(d) {
   const trialsBox = el("div", { class: "queue-trials" });
   state.trials.forEach((t) => {
     const box = el("div", { class: "queue-trial" });
-    box.appendChild(el("div", { class: "queue-title" }, t.name + " queue"));
+    const open = Math.max(0, Math.max(1, t.slots || 1) - enrolledCount(t.id));
+    box.appendChild(el("div", { class: "queue-title" }, [
+      document.createTextNode(t.name + " queue"),
+      el("span", { class: "queue-open" + (open ? "" : " full") }, open ? ` · ${open} open` : " · full"),
+    ]));
     const q = trialQueue(t);
     if (!q.length) box.appendChild(el("div", { class: "queue-empty" }, "no one picked this trial"));
+    // the FRONT of the line (first non-enrolled entrant) is up for prescreening
+    const frontIdx = open > 0 ? q.findIndex((x) => !x.p.enrolled) : -1;
     q.forEach(({ p, rank }, idx) => {
       const asn = d.assignments.find((a) => a.patient_id === p.id);
       const here = asn && asn.trial_id === t.id;
-      const status = here ? "✓ seated" : (asn ? "→ " + (d.trial_names[d.trial_ids.indexOf(asn.trial_id)] || asn.trial_id) : "✕ unmatched");
-      box.appendChild(el("div", { class: "queue-row" + (here ? " seated" : "") }, [
+      const enrolledHere = p.enrolled === t.id;
+      const status = enrolledHere ? "✓ enrolled" : here ? "✓ projected" : (asn ? "→ " + (d.trial_names[d.trial_ids.indexOf(asn.trial_id)] || asn.trial_id) : "✕ unmatched");
+      const row = el("div", { class: "queue-row" + (here ? " seated" : "") + (enrolledHere ? " enrolled" : "") }, [
         el("span", { class: "queue-pos" }, "#" + (idx + 1)),
         el("span", { class: "queue-nm clickable", onclick: () => openPatient(p.id) }, p.name),
         el("span", { class: "queue-rank" }, RANK_LABEL[rank]),
-        el("span", { class: "queue-status" + (here ? " ok" : "") }, status),
-        el("span", { class: "queue-btns" }, [
-          el("button", { class: "queue-btn", title: "move earlier in this trial's queue", disabled: idx === 0 ? "" : null, onclick: () => moveInQueue(t, idx, -1) }, "↑"),
-          el("button", { class: "queue-btn", title: "move later in this trial's queue", disabled: idx === q.length - 1 ? "" : null, onclick: () => moveInQueue(t, idx, 1) }, "↓"),
-        ]),
+        el("span", { class: "queue-status" + (here || enrolledHere ? " ok" : "") }, status),
+      ]);
+      if (idx === frontIdx && !p.enrolled) {
+        row.appendChild(el("span", { class: "queue-ps" }, [
+          el("span", { class: "queue-ps-lbl" }, "prescreen:"),
+          el("button", { class: "ps-btn pass", title: "passes prescreening — enrolls here, seat locks, other queues released", onclick: () => prescreenPass(p, t) }, "✓ pass"),
+          el("button", { class: "ps-btn fail", title: "fails prescreening — leaves this queue for good, lower choices promote, projection re-optimizes", onclick: () => prescreenFail(p, t) }, "✕ fail"),
+        ]));
+      }
+      row.appendChild(el("span", { class: "queue-btns" }, [
+        el("button", { class: "queue-btn", title: "move earlier in this trial's queue", disabled: (idx === 0 || enrolledHere) ? "" : null, onclick: () => moveInQueue(t, idx, -1) }, "↑"),
+        el("button", { class: "queue-btn", title: "move later in this trial's queue", disabled: (idx === q.length - 1 || enrolledHere) ? "" : null, onclick: () => moveInQueue(t, idx, 1) }, "↓"),
       ]));
+      box.appendChild(row);
     });
     trialsBox.appendChild(box);
   });
 
   return el("section", { class: "card" }, [
-    el("div", { class: "card-head" }, [el("h3", {}, "Trial queues (first-come tiebreak, per trial)")]),
     trialsBox,
-    el("p", { class: "hint" }, "Every trial keeps its own queue: a patient joins it the moment they pick that trial, independently of their other picks. When rankings tie exactly (two patients both rank the same trial 1st), the seat goes to whoever joined THAT trial's queue first. The tiebreak can never override a real rank difference — a 1st-choice pick beats a 2nd-choice pick regardless of queue position. Use ↑/↓ to reorder one trial's queue and re-run; other queues are unaffected."),
+    el("p", { class: "hint" }, "Every trial keeps its own queue: a patient joins it the moment they pick that trial. Trial staff prescreen the FRONT of the line while seats remain: ✓ pass enrolls the patient (seat locks, their other queue spots release), ✕ fail removes them from that queue for good (their lower choices promote) and the projection re-optimizes everyone still waiting. When rankings tie exactly, the seat goes to whoever joined THAT trial's queue first; a real rank difference always beats queue position. Use ↑/↓ to reorder a queue and re-run."),
   ]);
 }
 
@@ -770,7 +1037,11 @@ function updateSticky(d) {
     (d.total_score != null && (f.slotUrgency || f.patientUrgency)) ? el("span", { class: "sa-stat", title: "total combined score (pref + urgency bonuses)" }, [el("b", {}, d.total_score.toFixed(2)), " score"]) : null,
     d.unmatched.length ? el("span", { class: "sa-stat warn" }, [el("b", {}, String(d.unmatched.length)), " unmatched"]) : null,
   ]);
-  bar.appendChild(el("div", { class: "sa-info" }, [el("div", { class: "sa-title" }, "Assignments"), stats, maxMatchToggle(d)]));
+  const isChoice = currentTab().choice;
+  bar.appendChild(el("div", { class: "sa-info" }, [
+    el("div", { class: "sa-title" }, isChoice ? "Projected placements" : "Assignments"),
+    isChoice ? el("div", { class: "sa-subtitle" }, "a forecast, not enrollment: assumes everyone in queue passes prescreening · ✓ = enrolled (locked)") : null,
+    stats, maxMatchToggle(d)]));
   // right: one box per trial with its patient pills
   const byAssign = {}, byEmpty = {};
   d.assignments.forEach((a) => (byAssign[a.trial_id] = byAssign[a.trial_id] || []).push(a));
@@ -783,8 +1054,10 @@ function updateSticky(d) {
     (byAssign[tid] || []).forEach((a) => {
       const pd = d.patients_detail[d.patient_ids.indexOf(a.patient_id)];
       const urg = pd && pd.urgency && pd.urgency !== "none" ? pd.urgency : null;
-      body.appendChild(el("span", { class: "sa-pt", title: "preference " + a.pref + (urg ? " · urgency " + urg : ""), onclick: () => openPatient(a.patient_id) },
-        [urg ? el("span", { class: "sa-pt-urg u-" + urg }, "🚨") : null, el("span", { class: "sa-pt-nm" }, a.patient_name), el("span", { class: "sa-pt-pref" }, "♥" + a.pref)]));
+      const stp = state.patients.find((x) => x.id === a.patient_id);
+      const enr = stp && stp.enrolled === tid;
+      body.appendChild(el("span", { class: "sa-pt" + (enr ? " enrolled" : ""), title: (enr ? "ENROLLED (passed prescreening) · " : "") + "preference " + a.pref + (urg ? " · urgency " + urg : ""), onclick: () => openPatient(a.patient_id) },
+        [enr ? el("span", { class: "sa-pt-enr" }, "✓") : null, urg ? el("span", { class: "sa-pt-urg u-" + urg }, "🚨") : null, el("span", { class: "sa-pt-nm" }, a.patient_name), el("span", { class: "sa-pt-pref" }, "♥" + a.pref)]));
     });
     (byEmpty[tid] || []).forEach(() => body.appendChild(el("span", { class: "sa-pt open" }, "open")));
     const texp = (d.trial_expires && d.trial_expires[i] != null) ? d.trial_expires[i] : null;

@@ -8,12 +8,13 @@
  *   v2 · Patient choice (key: v2choice)
  *       v2 plus an explicit first-come-first-served tiebreak, applied PER TRIAL:
  *       every trial has its own queue, and a patient joins it the moment they pick
- *       that trial (patients carry `joined` = { trialId: joinSeq }). Cells are
- *       multiplied by (1 + (N - posInThatTrialsQueue) * 1e-4). The bonus is orders
- *       of magnitude below any real rank difference, so it ONLY decides exact ties —
- *       e.g. when several patients rank the same trial 1st, whoever joined that
- *       trial's queue first wins the seat. States without `joined` fall back to
- *       patient input order.
+ *       that trial (patients carry `joined` = { trialId: joinSeq }). Resolution is
+ *       lexicographic, not score-based: the solver finds the optimal total first,
+ *       then walks each seat's queue in join order and locks the earliest joiner
+ *       whose seating still achieves that exact optimum. So queue order only ever
+ *       decides exact ties, can never override a real rank difference, and a
+ *       patient's position in one trial's queue is never traded against their
+ *       position in another's. States without `joined` fall back to input order.
  *
  *   v2 · Uneven matrix (key: v2matrix)
  *       NOT an algorithm change — algorithmically identical to v2, which already
@@ -190,7 +191,9 @@
       for (let pi = 0; pi < nP; pi++) for (let ti = 0; ti < nT; ti++) if (elig[pi][ti]) { const v = prefRaw(pi, ti); if (v > mxPref) mxPref = v; }
       if (mxPref <= 0) mxPref = 1;
 
-      const cand = patients.map((_, pi) => slots.map((sl) => { const ti = tIdx[sl.trial_id]; return elig[pi][ti] && prefRaw(pi, ti) > 0; }));
+      // candidacy = eligible AND wanted. An enrolled patient (passed prescreening)
+      // is a fact on the ground: their cell stays a candidate no matter what.
+      const cand = patients.map((p, pi) => slots.map((sl) => { const ti = tIdx[sl.trial_id]; return (elig[pi][ti] && prefRaw(pi, ti) > 0) || (features.queueTiebreak && p.enrolled === sl.trial_id); }));
       const prefNorm = patients.map((_, pi) => slots.map((sl) => prefRaw(pi, tIdx[sl.trial_id]) / mxPref));
 
       // urgency terms (0 when the feature is off)
@@ -205,41 +208,59 @@
       const score = patients.map((_, pi) => slots.map((__, si) => (prefNorm[pi][si] + wS * uSlot[si]) * (1 + wP * uPat[pi])));
       const SCALE = (1 + wS) * (1 + wP); // max possible score, for max-match normalization
 
-      // first-come-first-served tiebreak, PER TRIAL: each trial has its own queue
-      // (patients join it the moment they pick that trial; `joined[trialId]` = join
-      // sequence, falling back to patient input order for hand-written states). Cells
-      // get a bonus that decays with position in that trial's queue. At 1e-4 it can
-      // never override a genuine rank difference (normalized prefs differ by
-      // >= 1/mxPref); it only decides exact ties in favor of the earlier joiner.
-      if (features.queueTiebreak) {
-        const QEPS = 1e-4;
-        trials.forEach((t, ti) => {
-          const entrants = [];
-          patients.forEach((p, pi) => {
-            if (prefRaw(pi, ti) <= 0) return; // not in this trial's queue
-            const seq = (p.joined && isFinite(p.joined[t.id])) ? p.joined[t.id] : 1e9 + (p.queue_pos || 0);
-            entrants.push({ pi, seq });
-          });
-          entrants.sort((a, b) => a.seq - b.seq);
-          entrants.forEach(({ pi }, pos) => {
-            const b = 1 + (nP - pos) * QEPS;
-            slots.forEach((sl, si) => { if (sl.trial_id === t.id) score[pi][si] *= b; });
-          });
-        });
-      }
-
       const EPS = 1e-6;
       // value plan: weight = score, minus a hair per match (fewer-enrolled wins exact ties).
       // maximal plan: weight = 1 + score/SCALE, so an extra enrollment always dominates.
       const buildW = (maxMatch) => patients.map((_, pi) => slots.map((__, si) => maxMatch ? (1 + score[pi][si] / (SCALE + EPS)) : (score[pi][si] - EPS)));
-      function solve(maxMatch) {
-        const asn = maxWeight(buildW(maxMatch), cand);
+      function solveTotal(W, candM) {
+        const asn = maxWeight(W, candM);
+        let total = 0;
+        for (let pi = 0; pi < nP; pi++) { const si = asn[pi]; if (si < nS && candM[pi][si]) total += W[pi][si]; }
+        return { asn, total };
+      }
+      function asnToMatched(asn) {
         const matched = {};
         for (let pi = 0; pi < nP; pi++) {
           const si = pi < asn.length ? asn[pi] : nS;
           if (si < nS && cand[pi][si]) { const sl = slots[si]; matched[pi] = { si, trial_id: sl.trial_id, slot_label: sl.label, pref: prefRaw(pi, tIdx[sl.trial_id]), score: score[pi][si] }; }
         }
         return matched;
+      }
+      // first-come-first-served tiebreak, PER TRIAL, resolved lexicographically:
+      // solve for the optimal total first, then walk each slot's queue in join order
+      // and LOCK the earliest joiner whose seating still achieves that exact optimum
+      // (re-solving under the locks to check). Locks are all-or-nothing per seat, so
+      // a patient's position in one trial's queue can never be traded against their
+      // position in another's — the seat goes to the earliest joiner of THAT trial's
+      // queue among the tied-optimal plans, and the tiebreak never costs any real
+      // score (rank difference, urgency, or enrollment count).
+      function solve(maxMatch) {
+        const W = buildW(maxMatch);
+        const TOL = 1e-9;
+        const pLock = {}, sLock = {};
+        const restricted = () => patients.map((_, pi) => slots.map((__, si) =>
+          cand[pi][si] && (pLock[pi] === undefined || pLock[pi] === si) && (sLock[si] === undefined || sLock[si] === pi)));
+        // enrollment locks FIRST: a patient who passed prescreening occupies their
+        // seat unconditionally — the projection optimizes only what's still open.
+        if (features.queueTiebreak) patients.forEach((p, pi) => {
+          if (!p.enrolled) return;
+          for (let si = 0; si < nS; si++) if (slots[si].trial_id === p.enrolled && sLock[si] === undefined) { pLock[pi] = si; sLock[si] = pi; break; }
+        });
+        const base = solveTotal(W, restricted());
+        if (!features.queueTiebreak) return asnToMatched(base.asn);
+        slots.forEach((sl, si) => {
+          if (sLock[si] !== undefined) return; // seat already taken by an enrollee
+          const entrants = patients
+            .map((p, pi) => ({ pi, seq: (p.joined && isFinite(p.joined[sl.trial_id])) ? p.joined[sl.trial_id] : 1e9 + (p.queue_pos || 0) }))
+            .filter((x) => cand[x.pi][si] && pLock[x.pi] === undefined)
+            .sort((a, b) => a.seq - b.seq);
+          for (const { pi } of entrants) {
+            pLock[pi] = si; sLock[si] = pi;
+            if (Math.abs(solveTotal(W, restricted()).total - base.total) < TOL) break; // lock holds
+            delete pLock[pi]; delete sLock[si];
+          }
+        });
+        return asnToMatched(solveTotal(W, restricted()).asn);
       }
       const matchedVal = solve(false), matchedMax = solve(true);
       const maxMatch = !!params.max_match;
@@ -345,6 +366,7 @@
         p.joined = {};
         const rawj = d.joined || {};
         for (const k of Object.keys(rawj)) { const n = Number(rawj[k]); if (isFinite(n)) p.joined[String(k)] = n; }
+        p.enrolled = (typeof d.enrolled === "string" && d.enrolled.trim()) ? d.enrolled.trim() : null;
       }
       return p;
     }
@@ -400,7 +422,7 @@
             attrs: Object.fromEntries(Object.keys(fields).map((k) => [k, (k in p.attrs) ? p.attrs[k] : defaultValue(fields[k].kind)])),
             preferences: Object.assign({}, p.preferences) };
           if (features.patientUrgency) o.urgency = p.urgency || "none";
-          if (features.queueTiebreak) o.joined = Object.assign({}, p.joined || {});
+          if (features.queueTiebreak) { o.joined = Object.assign({}, p.joined || {}); o.enrolled = p.enrolled || null; }
           return o;
         }),
         trials: trials.map((t) => {
@@ -598,8 +620,8 @@
           { name: "stage", label: "Stage", kind: CATEGORICAL, unit: "" },
         ],
         patients: [
-          { id: "P1", name: "Nina Alvarez (NSCLC IV)", attrs: { cancer_type: "NSCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
-          { id: "P2", name: "Sam Okafor (SCLC IV)", attrs: { cancer_type: "SCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
+          { id: "P1", name: "Priya Nair (NSCLC IV)", attrs: { cancer_type: "NSCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
+          { id: "P2", name: "Marcus Bell (SCLC IV)", attrs: { cancer_type: "SCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
         ],
         trials: [{ id: "T1", name: "Lung Trial", slots: 1, expires_days: null, criteria: [
           { conds: [{ field: "cancer_type", op: "==", value: "NSCLC" }, { field: "cancer_type", op: "==", value: "SCLC" }] }, // NSCLC OR SCLC
@@ -630,15 +652,15 @@
          patc("P2", "Marcus Bell", "SCLC", ["T1"], { urgency: "critical" })],
         [trial("T1", "Trial A", null, nsclc())]) },
     { name: "9 · Rule order matters: shadowing (edge)",
-      blurb: "A generic rule (Stage IV → High) sits ABOVE the specific one (SCLC + IV → Critical). First match wins, so BOTH stage-IV patients collapse to High and the seat falls back to queue order (Nina picked first). Open 🚨 Diagnosis urgency rules and press ↑ on the SCLC rule to evaluate it first — Sam becomes Critical and outranks the queue. Order specific rules before general ones.",
+      blurb: "A generic rule (Stage IV → High) sits ABOVE the specific one (SCLC + IV → Critical). First match wins, so BOTH stage-IV patients collapse to High and the seat falls back to queue order (Priya picked first). Open 🚨 Diagnosis urgency rules and press ↑ on the SCLC rule to evaluate it first — Marcus becomes Critical and outranks the queue. Order specific rules before general ones.",
       factory: () => ({
         fields: [
           { name: "cancer_type", label: "Cancer type", kind: CATEGORICAL, unit: "" },
           { name: "stage", label: "Stage", kind: CATEGORICAL, unit: "" },
         ],
         patients: [
-          { id: "P1", name: "Nina Alvarez (NSCLC IV)", attrs: { cancer_type: "NSCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
-          { id: "P2", name: "Sam Okafor (SCLC IV)", attrs: { cancer_type: "SCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
+          { id: "P1", name: "Priya Nair (NSCLC IV)", attrs: { cancer_type: "NSCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
+          { id: "P2", name: "Marcus Bell (SCLC IV)", attrs: { cancer_type: "SCLC", stage: "IV" }, preferences: { T1: 3 }, choices: ["T1"], urgency: "none" },
         ],
         trials: [{ id: "T1", name: "Lung Trial", slots: 1, expires_days: null, criteria: [
           { conds: [{ field: "cancer_type", op: "==", value: "NSCLC" }, { field: "cancer_type", op: "==", value: "SCLC" }] },
