@@ -113,13 +113,13 @@ const CHOICE_SCENARIOS = [
       cpat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
       cpat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
       cpat("P3", "Priya Nair", ["T1", "T2", "T3"])]) },
-  { name: "5 · Mutation-specific trial (KRAS G12C)", blurb: "Trial C requires KRAS G12C and only Marcus carries it. All three rank A > B > C, but the optimizer routes Marcus to C — the only patient who can fill it — even though it's his 3rd choice. Eleanor and Priya have identical picks, an exact tie, so Trial A's queue decides between them (Eleanor joined first; reorder the queue to flip it). For Eleanor and Priya, Trial C shows under NOT A FIT, and C's nurse would ✕ fail them at prescreening.",
+  { name: "5 · Mutation-specific trial (KRAS G12C)", blurb: "Trial C requires KRAS G12C and only Marcus carries it — for Eleanor and Priya it shows under NOT A FIT, so they only picked A and B. Marcus ranks A > B > C, but the optimizer routes him to C — the only patient who can fill it — even though it's his 3rd choice. Eleanor and Priya have identical picks, an exact tie, so Trial A's queue decides between them (Eleanor joined first; reorder the queue to flip it).",
     factory: () => ({
       fields: CHOICE_FIELDS(),
       patients: [
-        cpat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
+        cpat("P1", "Eleanor Hughes", ["T1", "T2"]),
         cpat("P2", "Marcus Bell", ["T1", "T2", "T3"], ["KRAS G12C"]),
-        cpat("P3", "Priya Nair", ["T1", "T2", "T3"])],
+        cpat("P3", "Priya Nair", ["T1", "T2"])],
       trials: [ctrial("T1", "Trial A"), ctrial("T2", "Trial B"),
         { id: "T3", name: "Trial C", slots: 1, criteria: [
           { conds: [{ field: "cancer_type", op: "==", value: "NSCLC", value2: null }] },
@@ -133,6 +133,7 @@ const state = {
   fields: [], patients: [], trials: [], params: { max_match: false }, urgency_rules: [],
   scenarios: [], view: "simple", lastResult: null, openPatientId: null,
   tab: "v2", actAsId: null, // which patient the selection flow is "acting as"
+  events: [], _pendingEvent: null, // decision log (choice tabs) + the action awaiting its projection delta
 };
 
 function currentTab() { return TABS.find((t) => t.id === state.tab) || TABS[0]; }
@@ -161,7 +162,7 @@ function nextId(prefix, existing) { let k = existing.length + 1; const set = new
 // --------------------------------------------------------------------------- //
 // Engine wiring + per-tab persistence
 // --------------------------------------------------------------------------- //
-function payload() { return { fields: state.fields, patients: state.patients, trials: state.trials, params: state.params, urgency_rules: state.urgency_rules }; }
+function payload() { return { fields: state.fields, patients: state.patients, trials: state.trials, params: state.params, urgency_rules: state.urgency_rules, events: state.events }; }
 
 const storeKey = (tabId) => "mp_tab_state_v1_" + tabId;
 
@@ -236,6 +237,9 @@ function loadState(raw) {
   state.trials = raw.trials;
   state.params = raw.params || { max_match: false };
   state.urgency_rules = Array.isArray(raw.urgency_rules) ? raw.urgency_rules : [];
+  state.events = Array.isArray(raw.events) ? raw.events : [];
+  state.lastResult = null; // a fresh state has no prior projection — don't log a phantom shift
+  state._pendingEvent = null;
   state.actAsId = null; // selection flow re-anchors to the first patient of the new state
   if (currentTab().choice) state.patients.forEach(ensureChoices);
   renderInputs();
@@ -249,12 +253,15 @@ function runAndRender() {
   if (!st.patients.length || !st.trials.length) { renderError("Add at least one patient and one trial."); return; }
   persist();
   try {
-    const { result } = currentEngine().match(st); state.lastResult = result; renderResults(result); renderPreviews();
+    const prev = projSummary(state.lastResult);
+    const { result } = currentEngine().match(st); state.lastResult = result;
+    noteProjectionShift(prev, projSummary(result));
+    renderResults(result); renderPreviews();
     // the selection flow shows result-derived info (eligibility, fill, blocks) — keep it in sync.
     // safe to re-render: it's buttons/chips only, no text inputs to lose focus on.
     if (currentTab().choice && state.view === "simple") renderPreferences();
   }
-  catch (e) { renderError("Could not compute: " + e.message); }
+  catch (e) { state._pendingEvent = null; renderError("Could not compute: " + e.message); }
 }
 let saveTimer = null;
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(runAndRender, 200); }
@@ -878,7 +885,7 @@ function setView(v) {
 // --------------------------------------------------------------------------- //
 // Results
 // --------------------------------------------------------------------------- //
-function renderError(msg) { $("#queueSection").style.display = "none"; $("#queuePanel").innerHTML = ""; $("#results").innerHTML = ""; $("#results").appendChild(el("div", { class: "card error-card" }, "⚠ " + msg)); }
+function renderError(msg) { state._pendingEvent = null; $("#queueSection").style.display = "none"; $("#queuePanel").innerHTML = ""; $("#results").innerHTML = ""; $("#results").appendChild(el("div", { class: "card error-card" }, "⚠ " + msg)); }
 
 function renderResults(d) {
   // trial queues render in their own section ABOVE the results panel
@@ -886,7 +893,7 @@ function renderResults(d) {
   const showQueues = currentTab().choice;
   qsec.style.display = showQueues ? "" : "none";
   qpanel.innerHTML = "";
-  if (showQueues) qpanel.appendChild(queueCard(d));
+  if (showQueues) { qpanel.appendChild(queueCard(d)); qpanel.appendChild(eventLogCard()); }
 
   const root = $("#results"); root.innerHTML = "";
   root.appendChild(unassignedCard(d));
@@ -913,14 +920,120 @@ function unassignedCard(d) {
 const RANK_LABEL = ["1st ♥3", "2nd ♥2", "3rd ♥1"];
 const enrolledCount = (tid) => state.patients.filter((x) => x.enrolled === tid).length;
 
+// ---- projection vs reality: off-plan detection, deltas, decision log ---- //
+const trialName = (tid) => { const t = state.trials.find((x) => x.id === tid); return t ? t.name : tid; };
+
+// compact snapshot of a projection: total ♥, who sits where, who's left out
+function projSummary(d) {
+  if (!d) return null;
+  return {
+    total: d.assignments.reduce((a, x) => a + x.pref, 0),
+    seats: Object.fromEntries(d.assignments.map((a) => [a.patient_id, a.trial_id])),
+    unmatched: d.unmatched.map((u) => ({ id: u.patient_id, name: u.patient_name })),
+  };
+}
+// run the engine on a what-if copy of the current state (nothing applied, nothing rendered)
+function simulate(mutate) {
+  const st = JSON.parse(JSON.stringify(payload()));
+  mutate(st);
+  try { return currentEngine().match(st).result; } catch (e) { return null; }
+}
+// prev/next projection diff, as log chips
+function shiftChips(prev, next) {
+  if (!prev || !next) return [];
+  const chips = [];
+  if (next.total !== prev.total) chips.push({ cls: next.total < prev.total ? "drop" : "good", text: `total ♥${prev.total} → ♥${next.total}` });
+  const was = new Set(prev.unmatched.map((u) => u.id)), now = new Set(next.unmatched.map((u) => u.id));
+  next.unmatched.filter((u) => !was.has(u.id)).forEach((u) => chips.push({ cls: "strand", text: `⚠ ${u.name} now projected unmatched` }));
+  prev.unmatched.filter((u) => !now.has(u.id)).forEach((u) => chips.push({ cls: "good", text: `${u.name} now projected matched` }));
+  return chips;
+}
+function logEventNow(icon, text, chips) {
+  state.events.push({ n: state.events.length + 1, t: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), icon, text, chips: chips || [] });
+}
+// an explicit queue action registers itself here; the next solve attaches its projection delta
+function queueAction(icon, text, opts) { state._pendingEvent = Object.assign({ icon, text }, opts || {}); }
+function noteProjectionShift(prev, next) {
+  const pending = state._pendingEvent; state._pendingEvent = null;
+  if (!currentTab().choice || !next) return;
+  const chips = shiftChips(prev, next);
+  const key = (s) => s.unmatched.map((u) => u.id).sort().join(",");
+  const strandingChanged = prev && key(prev) !== key(next);
+  if (pending) {
+    if (chips.length || !pending.onlyIfShift) logEventNow(pending.icon, pending.text, chips);
+    else return;
+  } else if (strandingChanged) {
+    // no explicit action, but a selection/input edit flipped someone's fate — worth an alert
+    logEventNow("📈", "Projection shifted after input changes.", chips);
+  } else return;
+  persist(); // events changed after the regular persist() ran
+}
+
+// ---- confirm modal (off-plan enrollment) ---- //
+function confirmModal(opts) {
+  const close = () => { ov.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const ov = el("div", { class: "modal-ov", onclick: (e) => { if (e.target === ov) close(); } }, [
+    el("div", { class: "modal-box" }, [
+      el("div", { class: "modal-title" }, opts.title),
+      ...opts.lines.map((l) => el("div", { class: "modal-line" + (l.cls ? " " + l.cls : "") }, l.text)),
+      el("div", { class: "modal-btns" }, [
+        el("button", { class: "modal-btn cancel", onclick: close }, "Cancel"),
+        el("button", { class: "modal-btn confirm", onclick: () => { close(); opts.onConfirm(); } }, opts.confirmLabel || "Confirm"),
+      ]),
+    ]),
+  ]);
+  document.body.appendChild(ov);
+  document.addEventListener("keydown", onKey);
+}
+
 // ---- prescreening simulation: the front of each queue gets prescreened ---- //
-function prescreenPass(p, t) {
-  p.enrolled = t.id;       // seat is taken — a fact, locked in every future solve
-  p.choices = [t.id];      // withdraws from all other queues
+function applyPass(p, t) {
+  const ri = (p.choices || []).indexOf(t.id);
+  p.enrolled = t.id; // seat is taken — a fact, locked in every future solve
+  // withdraw from all other queues but KEEP the trial at its original rank,
+  // so the enrolled seat keeps counting its real ♥ (not a fake 1st-choice ♥3)
+  p.choices = [0, 1, 2].map((i) => (i === ri ? t.id : null));
   ensureChoices(p); syncJoined(p);
   runAndRender();
 }
+function prescreenPass(p, t) {
+  const cur = projSummary(state.lastResult);
+  const planned = cur ? cur.seats[p.id] : undefined;
+  if (!cur || planned === t.id) { // on-plan: enroll silently
+    queueAction("✓", `${p.name} passed prescreening at ${t.name} — enrolled, on-plan.`);
+    applyPass(p, t);
+    return;
+  }
+  // off-plan: show the cost (simulated with this lock) before committing
+  const sim = projSummary(simulate((st) => { const sp = st.patients.find((x) => x.id === p.id); if (sp) sp.enrolled = t.id; }));
+  const plannedTxt = planned ? `seats ${p.name} at ${trialName(planned)}` : `leaves ${p.name} waiting (projected unmatched)`;
+  const lines = [
+    { text: `The current projection ${plannedTxt}.` },
+    { text: `You're enrolling them at ${t.name} instead.` },
+  ];
+  if (sim) {
+    if (sim.total !== cur.total) lines.push({ cls: "warn", text: `Projected total ♥${cur.total} → ♥${sim.total}.` });
+    const was = new Set(cur.unmatched.map((u) => u.id));
+    const newly = sim.unmatched.filter((u) => !was.has(u.id));
+    if (newly.length) lines.push({ cls: "bad", text: `⚠ ${newly.map((u) => u.name).join(", ")} would become projected unmatched.` });
+    const now = new Set(sim.unmatched.map((u) => u.id));
+    const rescued = cur.unmatched.filter((u) => !now.has(u.id));
+    if (rescued.length) lines.push({ text: `${rescued.map((u) => u.name).join(", ")} would become projected matched.` });
+    if (sim.total === cur.total && !newly.length && !rescued.length) lines.push({ text: "No projected cost — this only re-balances an exact tie." });
+  }
+  confirmModal({
+    title: `Off-plan enrollment at ${t.name}`,
+    lines,
+    confirmLabel: "Enroll anyway",
+    onConfirm: () => {
+      queueAction("⚠", `Off-plan: ${p.name} enrolled at ${t.name} (projection ${planned ? "had " + trialName(planned) : "had them waiting"}).`);
+      applyPass(p, t);
+    },
+  });
+}
 function prescreenFail(p, t) {
+  queueAction("✕", `${p.name} screen-failed at ${t.name} — out of that queue for good; lower choices promote.`);
   if (!p.screenfails) p.screenfails = {};
   p.screenfails[t.id] = true; // out of THIS trial for good; other choices promote
   p.choices = (p.choices || []).filter(Boolean).filter((x) => x !== t.id);
@@ -933,7 +1046,28 @@ function moveInQueue(t, idx, dir) {
   if (j < 0 || j >= q.length) return;
   const a = q[idx].p, b = q[j].p; // swap their join seqs for THIS trial only
   const tmp = a.joined[t.id]; a.joined[t.id] = b.joined[t.id]; b.joined[t.id] = tmp;
+  queueAction("↕", `${a.name} moved ${dir < 0 ? "up past" : "down past"} ${b.name} in ${t.name}'s queue.`, { onlyIfShift: true });
   runAndRender();
+}
+
+// ---- decision log card ---- //
+function eventLogCard() {
+  const head = el("div", { class: "card-head" }, [
+    el("h3", {}, `Decision log (${state.events.length})`),
+    state.events.length ? el("button", { class: "evlog-clear", onclick: () => { state.events = []; persist(); renderResults(state.lastResult); } }, "clear") : null,
+  ]);
+  const rows = state.events.slice().reverse().map((ev) => el("div", { class: "evlog-row" }, [
+    el("span", { class: "evlog-n" }, "#" + ev.n),
+    el("span", { class: "evlog-time" }, ev.t),
+    el("span", { class: "evlog-text" }, [
+      document.createTextNode((ev.icon ? ev.icon + " " : "") + ev.text),
+      ...(ev.chips || []).map((c) => el("span", { class: "evlog-chip " + c.cls }, c.text)),
+    ]),
+  ]));
+  return el("section", { class: "card" }, [
+    head,
+    rows.length ? el("div", {}, rows) : el("div", { class: "evlog-empty" }, "Prescreen decisions, off-plan enrollments, and projection shifts will appear here."),
+  ]);
 }
 function queueCard(d) {
   const trialsBox = el("div", { class: "queue-trials" });
@@ -960,9 +1094,17 @@ function queueCard(d) {
         el("span", { class: "queue-status" + (here || enrolledHere ? " ok" : "") }, status),
       ]);
       if (idx === frontIdx && !p.enrolled) {
+        // off-plan = the projection doesn't seat this patient here; passing will ask for confirmation
+        const offplan = !here;
         row.appendChild(el("span", { class: "queue-ps" }, [
           el("span", { class: "queue-ps-lbl" }, "prescreen:"),
-          el("button", { class: "ps-btn pass", title: "passes prescreening — enrolls here, seat locks, other queues released", onclick: () => prescreenPass(p, t) }, "✓ pass"),
+          el("button", {
+            class: "ps-btn pass" + (offplan ? " offplan" : ""),
+            title: offplan
+              ? "off-plan: the projection " + (asn ? "seats them at " + (d.trial_names[d.trial_ids.indexOf(asn.trial_id)] || asn.trial_id) : "leaves them unmatched") + " — you'll see the cost and confirm"
+              : "passes prescreening — enrolls here, seat locks, other queues released",
+            onclick: () => prescreenPass(p, t),
+          }, offplan ? "⚠ pass" : "✓ pass"),
           el("button", { class: "ps-btn fail", title: "fails prescreening — leaves this queue for good, lower choices promote, projection re-optimizes", onclick: () => prescreenFail(p, t) }, "✕ fail"),
         ]));
       }
@@ -977,7 +1119,7 @@ function queueCard(d) {
 
   return el("section", { class: "card" }, [
     trialsBox,
-    el("p", { class: "hint" }, "Every trial keeps its own queue: a patient joins it the moment they pick that trial. Trial staff prescreen the FRONT of the line while seats remain: ✓ pass enrolls the patient (seat locks, their other queue spots release), ✕ fail removes them from that queue for good (their lower choices promote) and the projection re-optimizes everyone still waiting. When rankings tie exactly, the seat goes to whoever joined THAT trial's queue first; a real rank difference always beats queue position. Use ↑/↓ to reorder a queue and re-run."),
+    el("p", { class: "hint" }, "Every trial keeps its own queue: a patient joins it the moment they pick that trial. Trial staff prescreen the FRONT of the line while seats remain: ✓ pass enrolls the patient (seat locks, their other queue spots release), ✕ fail removes them from that queue for good (their lower choices promote) and the projection re-optimizes everyone still waiting. When rankings tie exactly, the seat goes to whoever joined THAT trial's queue first; a real rank difference always beats queue position. Use ↑/↓ to reorder a queue and re-run. An amber ⚠ pass is OFF-PLAN — the projection seats that patient elsewhere (or not at all); passing shows the cost in projected ♥ and stranded patients before you confirm. Every decision and projection shift lands in the decision log below."),
   ]);
 }
 

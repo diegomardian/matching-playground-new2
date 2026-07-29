@@ -528,6 +528,34 @@ body { padding-bottom: 176px; }
 .ps-btn.pass:hover { background: #dcfce7; }
 .ps-btn.fail { color: var(--red); border-color: #fca5a5; background: #fef2f2; }
 .ps-btn.fail:hover { background: #fee2e2; }
+.ps-btn.pass.offplan { color: #92400e; border-color: #fcd34d; background: #fffbeb; }
+.ps-btn.pass.offplan:hover { background: #fef3c7; }
+
+/* ---- off-plan confirm modal ---- */
+.modal-ov { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.modal-box { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); max-width: 480px; width: calc(100% - 40px); padding: 18px 20px; }
+.modal-title { font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+.modal-line { font-size: 13px; margin: 4px 0; }
+.modal-line.warn { color: #92400e; font-weight: 600; }
+.modal-line.bad { color: var(--red); font-weight: 600; }
+.modal-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.modal-btn { border-radius: 9px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); background: #fff; }
+.modal-btn.cancel:hover { background: #f8fafc; }
+.modal-btn.confirm { background: var(--amber); border-color: var(--amber); color: #fff; }
+.modal-btn.confirm:hover { filter: brightness(.94); }
+
+/* ---- decision log ---- */
+.evlog-row { display: flex; gap: 8px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 4px; background: #fff; font-size: 12.5px; align-items: baseline; }
+.evlog-n { color: var(--ink-soft); font-size: 11px; min-width: 24px; font-weight: 700; }
+.evlog-time { color: var(--ink-soft); font-size: 11px; white-space: nowrap; }
+.evlog-text { flex: 1; }
+.evlog-chip { display: inline-block; border-radius: 999px; padding: 0 8px; font-size: 11px; font-weight: 700; margin-left: 6px; white-space: nowrap; }
+.evlog-chip.drop { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+.evlog-chip.strand { background: #fef2f2; color: var(--red); border: 1px solid #fca5a5; }
+.evlog-chip.good { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+.evlog-empty { color: var(--ink-soft); font-size: 12.5px; }
+.evlog-clear { margin-left: auto; border: 1px solid var(--line); background: #fff; border-radius: 8px; font: inherit; font-size: 11.5px; padding: 2px 9px; cursor: pointer; color: var(--ink-soft); }
+.evlog-clear:hover { background: #f8fafc; }
 .queue-row.enrolled { background: #dcfce7; border-color: #16a34a; }
 .sa-subtitle { font-size: 10.5px; color: var(--ink-soft); margin: 1px 0 4px; max-width: 230px; line-height: 1.35; }
 .sa-pt.enrolled { background: #dcfce7; border: 1px solid #16a34a; }
