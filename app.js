@@ -108,7 +108,7 @@ const CHOICE_SCENARIOS = [
       cpat("P1", "Eleanor Hughes", ["T3", "T1", "T2"]),
       cpat("P2", "Marcus Bell", ["T2", null, null]),
       cpat("P3", "Priya Nair", ["T3", null, null])]) },
-  { name: "4 · Identical rankings (queue decides)", blurb: "Everyone ranks A > B > C, so every seating totals the same score. Each trial's own queue breaks the tie: whoever joined Trial A's queue first gets A, and so on down the line. Use the ↑/↓ arrows in the queue card under the results to reorder any single trial's queue and watch its seat follow.",
+  { name: "4 · Identical rankings (queue decides)", blurb: "Everyone ranks A > B > C, so every seating totals the same score. Each trial's own queue breaks the tie: whoever joined Trial A's queue first gets A, and so on down the line. Use the ↑/↓ arrows in the queue card (step 3 · Queues & results) to reorder any single trial's queue and watch its seat follow.",
     factory: () => chState([
       cpat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
       cpat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
@@ -134,6 +134,7 @@ const state = {
   scenarios: [], view: "simple", lastResult: null, openPatientId: null,
   tab: "v2", actAsId: null, // which patient the selection flow is "acting as"
   events: [], _pendingEvent: null, // decision log (choice tabs) + the action awaiting its projection delta
+  flowTab: "select", // active workflow step on choice tabs: setup | select | queues
 };
 
 function currentTab() { return TABS.find((t) => t.id === state.tab) || TABS[0]; }
@@ -284,12 +285,61 @@ function applyTabChrome() {
   if (tab.choice && state.view === "simple") { h.append("🧭 Patient selection "); h.appendChild(el("span", { class: "count" }, ": act as a patient · add up to 3 trials in order (1st ♥3 / 2nd ♥2 / 3rd ♥1) · adding joins that trial's queue")); }
   else if (tab.choice) { h.append("🎯 Top-3 choices "); h.appendChild(el("span", { class: "count" }, ": quick-edit rank table · auto-scores ♥3 / ♥2 / ♥1; unpicked = 0 (won't take)")); }
   else { h.append("⭐ Preferences "); h.appendChild(el("span", { class: "count" }, ": higher = wants it more; 0 = won't take it")); }
+  applyFlowLayout();
+}
+
+// ---- workflow step tabs (choice tabs): the flow is split into three modules ---- //
+const FLOW_TABS = [
+  { id: "setup", icon: "🛠️", label: "Patients & trials", hint: "edit the inputs" },
+  { id: "select", icon: "🧭", label: "Patient selection", hint: "act as a patient · rank trials" },
+  { id: "queues", icon: "🎟️", label: "Queues & results", hint: "prescreen · decision log · board" },
+];
+const flowKey = () => "mp_flow_tab_v1_" + state.tab;
+function restoreFlowTab() {
+  let saved = null;
+  try { saved = localStorage.getItem(flowKey()); } catch (e) { /* ignore */ }
+  state.flowTab = FLOW_TABS.some((f) => f.id === saved) ? saved : "select";
+}
+function renderFlowTabs() {
+  const nav = $("#flowTabs"); if (!nav) return;
+  nav.innerHTML = "";
+  FLOW_TABS.forEach((f, i) => {
+    const badge = (f.id === "queues" && state.events.length)
+      ? el("span", { class: "ftab-badge", title: state.events.length + " logged decisions" }, String(state.events.length)) : null;
+    nav.appendChild(el("button", {
+      class: "ftab" + (f.id === state.flowTab ? " active" : ""), role: "tab",
+      "aria-selected": f.id === state.flowTab ? "true" : "false",
+      onclick: () => setFlowTab(f.id),
+    }, [
+      el("span", { class: "ftab-step" }, String(i + 1)),
+      el("span", { class: "ftab-txt" }, [el("b", {}, f.icon + " " + f.label), el("span", { class: "ftab-hint" }, f.hint)]),
+      badge,
+    ]));
+  });
+}
+// visibility is CSS-driven: body carries flow-active + flow-<step>, and style.css
+// hides the sections that don't belong to the active step. The per-section inline
+// display logic (rules by feature, queues by tab) keeps working underneath.
+function applyFlowLayout() {
+  const choice = currentTab().choice;
+  $("#flowTabs").style.display = choice ? "" : "none";
+  document.body.classList.toggle("flow-active", choice);
+  FLOW_TABS.forEach((f) => document.body.classList.toggle("flow-" + f.id, choice && state.flowTab === f.id));
+  if (choice) renderFlowTabs();
+}
+function setFlowTab(id) {
+  if (state.flowTab === id) return;
+  state.flowTab = id;
+  try { localStorage.setItem(flowKey(), id); } catch (e) { /* ignore */ }
+  applyFlowLayout();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 function setTab(id) {
   if (state.tab === id) return;
   persist(); // save the tab we're leaving
   state.tab = id;
   try { localStorage.setItem("mp_active_tab_v1", id); } catch (e) { /* ignore */ }
+  restoreFlowTab();
   closeDrawer();
   renderTabs(); applyTabChrome(); populateScenarios();
   loadState(loadTabRaw(currentTab()));
@@ -885,15 +935,16 @@ function setView(v) {
 // --------------------------------------------------------------------------- //
 // Results
 // --------------------------------------------------------------------------- //
-function renderError(msg) { state._pendingEvent = null; $("#queueSection").style.display = "none"; $("#queuePanel").innerHTML = ""; $("#results").innerHTML = ""; $("#results").appendChild(el("div", { class: "card error-card" }, "⚠ " + msg)); }
+function renderError(msg) { state._pendingEvent = null; document.body.classList.add("has-error"); $("#queueSection").style.display = "none"; $("#queuePanel").innerHTML = ""; $("#results").innerHTML = ""; $("#results").appendChild(el("div", { class: "card error-card" }, "⚠ " + msg)); }
 
 function renderResults(d) {
+  document.body.classList.remove("has-error");
   // trial queues render in their own section ABOVE the results panel
   const qsec = $("#queueSection"), qpanel = $("#queuePanel");
   const showQueues = currentTab().choice;
   qsec.style.display = showQueues ? "" : "none";
   qpanel.innerHTML = "";
-  if (showQueues) { qpanel.appendChild(queueCard(d)); qpanel.appendChild(eventLogCard()); }
+  if (showQueues) { qpanel.appendChild(queueCard(d)); qpanel.appendChild(eventLogCard()); renderFlowTabs(); }
 
   const root = $("#results"); root.innerHTML = "";
   root.appendChild(unassignedCard(d));
@@ -1346,6 +1397,7 @@ function init() {
   let savedTab = null;
   try { savedTab = localStorage.getItem("mp_active_tab_v1"); } catch (e) { /* ignore */ }
   state.tab = TABS.some((t) => t.id === savedTab) ? savedTab : TABS[0].id;
+  restoreFlowTab();
   renderTabs();
   applyTabChrome();
   populateScenarios();

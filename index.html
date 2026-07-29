@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Matching Demo</title>
-  <link rel="stylesheet" href="./style.css?v=20260728" />
+  <link rel="stylesheet" href="./style.css?v=20260729" />
 </head>
 <body>
   <header class="topbar">
@@ -36,6 +36,9 @@
       <div class="toolbar-params" id="engineParams"></div>
       <p class="scenario-blurb" id="scenarioBlurb"></p>
     </section>
+
+    <!-- workflow steps (patient-choice tabs only): setup → selection → queues & results -->
+    <nav class="flow-tabs" id="flowTabs" style="display:none" role="tablist" aria-label="workflow step"></nav>
 
     <!-- INPUT SPLIT: patients/trials on the left, preferences on the right -->
     <div class="split">
@@ -107,7 +110,7 @@
     </section>
 
     <!-- RESULTS -->
-    <section class="board-section">
+    <section class="board-section" id="resultsSection">
       <div class="section-head"><h2>📊 Results</h2></div>
       <div id="results"><div class="placeholder card">Loading…</div></div>
     </section>
@@ -129,8 +132,8 @@
   <!-- sticky assignment bar: stays visible at the bottom once the board scrolls out of view -->
   <div class="sticky-assign" id="stickyAssign"></div>
 
-  <script src="./match-engine.js?v=20260728"></script>
-  <script src="./engines-v345.js?v=20260728"></script>
-  <script src="./app.js?v=20260728"></script>
+  <script src="./match-engine.js?v=20260729"></script>
+  <script src="./engines-v345.js?v=20260729"></script>
+  <script src="./app.js?v=20260729"></script>
 </body>
 </html>

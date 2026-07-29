@@ -567,3 +567,28 @@ body { padding-bottom: 176px; }
 .flow-enrolled { border: 1px solid #86efac; background: #f0fdf4; color: #166534; border-radius: 11px; padding: 12px 14px; font-size: 13px; font-weight: 600; }
 .selslot.enrolled { border-color: #16a34a; background: #dcfce7; }
 .selslot.enrolled .selslot-rank { color: #166534; }
+
+/* ===================== workflow step tabs (patient-choice tabs) ===================== */
+.flow-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+.ftab { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 8px 16px 8px 10px; cursor: pointer; text-align: left; font: inherit; box-shadow: var(--shadow); }
+.ftab:hover { border-color: var(--primary); }
+.ftab.active { border-color: var(--primary); outline: 2px solid var(--primary); outline-offset: -2px; background: #f0fdfa; }
+.ftab-step { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: #e2e8f0; color: var(--ink-soft); font-weight: 750; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.ftab.active .ftab-step { background: var(--primary); color: #fff; }
+.ftab-txt { display: flex; flex-direction: column; line-height: 1.25; }
+.ftab-txt b { font-size: 14px; color: var(--ink); }
+.ftab-hint { font-size: 11.5px; color: var(--ink-soft); }
+.ftab-badge { margin-left: 2px; background: var(--primary); color: #fff; border-radius: 999px; font-size: 11.5px; font-weight: 700; padding: 2px 8px; }
+
+/* per-step visibility (body.flow-active): setup = input editors, select = the
+   selection flow, queues = trial queues + decision log + results. !important so
+   these win over the sections' own inline display logic; has-error un-hides the
+   results panel so "add at least one patient" isn't invisible mid-edit. */
+body.flow-active.flow-setup .split-right,
+body.flow-active.flow-select .split-left,
+body.flow-active.flow-queues .split,
+body.flow-active:not(.flow-setup) #rulesDetails,
+body.flow-active:not(.flow-setup) #fieldsDetails { display: none !important; }
+body.flow-active:not(.flow-queues):not(.has-error) #queueSection,
+body.flow-active:not(.flow-queues):not(.has-error) #resultsSection { display: none !important; }
+body.flow-active.flow-select .split-right { flex: 1 1 100%; }
