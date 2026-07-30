@@ -592,3 +592,10 @@ body.flow-active:not(.flow-setup) #fieldsDetails { display: none !important; }
 body.flow-active:not(.flow-queues):not(.has-error) #queueSection,
 body.flow-active:not(.flow-queues):not(.has-error) #resultsSection { display: none !important; }
 body.flow-active.flow-select .split-right { flex: 1 1 100%; }
+
+/* ===================== trial-interest tab: meeting board + backfill ===================== */
+.ps-btn.pin { border-color: #a78bfa; color: #6d28d9; background: #f5f3ff; }
+.ps-btn.pin:hover { background: #ede9fe; }
+.bf-head { margin: 10px 0 4px; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); border-top: 1px dashed var(--line); padding-top: 8px; }
+.queue-row.bf-row { opacity: .85; background: #fafafa; border-style: dashed; }
+.interest-cb { width: 17px; height: 17px; accent-color: var(--primary); cursor: pointer; }

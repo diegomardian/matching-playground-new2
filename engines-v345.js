@@ -16,12 +16,17 @@
  *       patient's position in one trial's queue is never traded against their
  *       position in another's. States without `joined` fall back to input order.
  *
- *   v2 · Uneven matrix (key: v2matrix)
- *       NOT an algorithm change — algorithmically identical to v2, which already
- *       handles non-square inputs by padding: every patient gets a 0-value dummy
- *       "unmatched" column, and dummy patient rows (worth 0) absorb leftover slots.
- *       This variant only EXPOSES that padded matrix in the result so the UI can
- *       render what the solver actually sees.
+ *   v2 · Trial interest (key: v2interest)
+ *       v2 driven by UNORDERED interest lists instead of ranked picks + queues.
+ *       The clinical team marks which trials each patient could be offered; every
+ *       interested cell scores the same, so the optimizer proposes the placement
+ *       that fills the most seats. No queue tiebreak — ties are resolved by the
+ *       team at the meeting. Two locks shape re-solves: `enrolled` (a consumed
+ *       seat, unconditional) and `pinned` (a team decision to hold a seat for a
+ *       patient — honored only while that patient is still eligible). The app
+ *       layers backfill lists and the offer lifecycle on top of this engine.
+ *       (The padded-matrix visualization from the old v2matrix tab still renders
+ *       in Advanced view via matrixView.)
  *
  *   v3  Slot urgency. Trials may carry `expires_days` (days until the slot expires;
  *       null = no expiry). Urgency ramps linearly inside a horizon (default 30 days):
@@ -44,7 +49,7 @@
  * Bonuses can never place a patient in a trial they refused: candidacy still requires
  * eligibility AND preference > 0, exactly like v2.
  *
- * Exposed as global `ENGINES` = { v2choice, v2matrix, v3, v4 }, each with the same
+ * Exposed as global `ENGINES` = { v2choice, v2interest, v3, v4 }, each with the same
  * match()/scenarios surface app.js expects from v2's ENGINE.
  */
 (function (global) {
@@ -191,9 +196,17 @@
       for (let pi = 0; pi < nP; pi++) for (let ti = 0; ti < nT; ti++) if (elig[pi][ti]) { const v = prefRaw(pi, ti); if (v > mxPref) mxPref = v; }
       if (mxPref <= 0) mxPref = 1;
 
-      // candidacy = eligible AND wanted. An enrolled patient (passed prescreening)
+      // candidacy = eligible AND wanted. An enrolled patient (passed screening)
       // is a fact on the ground: their cell stays a candidate no matter what.
-      const cand = patients.map((p, pi) => slots.map((sl) => { const ti = tIdx[sl.trial_id]; return (elig[pi][ti] && prefRaw(pi, ti) > 0) || (features.queueTiebreak && p.enrolled === sl.trial_id); }));
+      // A PINNED patient (offerLocks: the team reserved this seat for them) stays a
+      // candidate too, but only while still eligible — a pin never bypasses the gate.
+      const locks = features.queueTiebreak || features.offerLocks;
+      const cand = patients.map((p, pi) => slots.map((sl) => {
+        const ti = tIdx[sl.trial_id];
+        return (elig[pi][ti] && prefRaw(pi, ti) > 0)
+          || (locks && p.enrolled === sl.trial_id)
+          || (features.offerLocks && p.pinned === sl.trial_id && elig[pi][ti]);
+      }));
       const prefNorm = patients.map((_, pi) => slots.map((sl) => prefRaw(pi, tIdx[sl.trial_id]) / mxPref));
 
       // urgency terms (0 when the feature is off)
@@ -242,9 +255,15 @@
           cand[pi][si] && (pLock[pi] === undefined || pLock[pi] === si) && (sLock[si] === undefined || sLock[si] === pi)));
         // enrollment locks FIRST: a patient who passed prescreening occupies their
         // seat unconditionally — the projection optimizes only what's still open.
-        if (features.queueTiebreak) patients.forEach((p, pi) => {
+        if (locks) patients.forEach((p, pi) => {
           if (!p.enrolled) return;
           for (let si = 0; si < nS; si++) if (slots[si].trial_id === p.enrolled && sLock[si] === undefined) { pLock[pi] = si; sLock[si] = pi; break; }
+        });
+        // then pins (offerLocks): a team decision to hold a seat for a patient.
+        // Softer than enrollment — honored only while the cell is still a candidate.
+        if (features.offerLocks) patients.forEach((p, pi) => {
+          if (!p.pinned || pLock[pi] !== undefined) return;
+          for (let si = 0; si < nS; si++) if (slots[si].trial_id === p.pinned && sLock[si] === undefined && cand[pi][si]) { pLock[pi] = si; sLock[si] = pi; break; }
         });
         const base = solveTotal(W, restricted());
         if (!features.queueTiebreak) return asnToMatched(base.asn);
@@ -368,6 +387,10 @@
         for (const k of Object.keys(rawj)) { const n = Number(rawj[k]); if (isFinite(n)) p.joined[String(k)] = n; }
         p.enrolled = (typeof d.enrolled === "string" && d.enrolled.trim()) ? d.enrolled.trim() : null;
       }
+      if (features.offerLocks) {
+        p.enrolled = (typeof d.enrolled === "string" && d.enrolled.trim()) ? d.enrolled.trim() : null;
+        p.pinned = (typeof d.pinned === "string" && d.pinned.trim()) ? d.pinned.trim() : null;
+      }
       return p;
     }
     function condFromDict(c, fields) {
@@ -423,6 +446,7 @@
             preferences: Object.assign({}, p.preferences) };
           if (features.patientUrgency) o.urgency = p.urgency || "none";
           if (features.queueTiebreak) { o.joined = Object.assign({}, p.joined || {}); o.enrolled = p.enrolled || null; }
+          if (features.offerLocks) { o.enrolled = p.enrolled || null; o.pinned = p.pinned || null; }
           return o;
         }),
         trials: trials.map((t) => {
@@ -694,10 +718,13 @@
       features: { matrixView: false, slotUrgency: false, patientUrgency: false, queueTiebreak: true },
       scenarios: CHOICE_STUB_SCENARIOS,
     }),
-    // algorithmically identical to v2 — only adds the matrix_view visualization
-    v2matrix: makeEngine({
-      version: "v2", label: "v2 · Uneven matrix", tagline: "Same algorithm as v2 — this tab only VISUALIZES how it already handles empty values: surplus patients fall to 0-value dummy columns (unmatched), surplus slots are absorbed by dummy rows (unfilled). The padded matrix is rendered under the results.",
-      features: { matrixView: true, slotUrgency: false, patientUrgency: false },
+    // v2 + offer locks (enrolled/pinned), no queues — the app's "Trial interest" tab.
+    // Interest is unordered (all interested cells score the same), so the optimizer
+    // maximizes fill; the app layers the meeting board, backfill lists, and the
+    // offer lifecycle on top. Scenarios come from the app (stub kept for the API).
+    v2interest: makeEngine({
+      version: "v2", label: "v2 · Trial interest", tagline: "Same v2 algorithm driven by unordered interest lists: the clinical team marks which trials each patient could be offered, the optimizer proposes the fill-maximizing placement, and per-trial BACKFILL lists (not queues) stand by to replace any offer that falls through. Enrolled seats and team pins are hard locks.",
+      features: { matrixView: true, slotUrgency: false, patientUrgency: false, offerLocks: true },
       scenarios: MATRIX_SCENARIOS,
     }),
     v3: makeEngine({

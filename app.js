@@ -79,7 +79,8 @@ const TABS = [
     desc: "The current engine: CNF eligibility gate → preference-only Hungarian assignment, with the value / maximal-matching toggle and the greedy comparison." },
   { id: "choice", label: "v2 · Patient choice", engine: () => window.ENGINES.v2choice, choice: true,
     desc: "Same v2 algorithm, driven by the SphinxMatch selection flow: act as a patient, review recommended vs not-a-fit trials (with blocks/slots/queue info), and add up to 3 trials in order of preference. Adding a trial joins its queue for prescreening at that moment; scores derive from rank (1st ♥3, 2nd ♥2, 3rd ♥1, unpicked 0 = won't take) and exact ties break by each trial's own queue. Advanced view has a quick-edit rank table." },
-  { id: "v2matrix", label: "v2 · Uneven matrix", engine: () => window.ENGINES.v2matrix, choice: false },
+  { id: "v2interest", label: "v2 · Trial interest", engine: () => window.ENGINES.v2interest, choice: false, interest: true,
+    desc: "Same v2 algorithm driven by UNORDERED interest lists — the Thursday-meeting workflow. The clinical team marks which trials each patient could be offered; the optimizer proposes the fill-maximizing placement (the meeting artifact the team validates), and every trial gets a BACKFILL list instead of a queue: who the optimizer would seat next if an offer falls through. Work offers through the week — offer → consent → pre-screen → screen → enroll; a decline or screen-fail promotes the backfill immediately instead of waiting for next Thursday. Pin a patient to deviate from the proposal; the projected cost shows before you commit." },
   { id: "v3", label: "v3 · Slot urgency", engine: () => window.ENGINES.v3, choice: true },
   { id: "v4", label: "v4 · Patient urgency", engine: () => window.ENGINES.v4, choice: true },
 ];
@@ -127,6 +128,48 @@ const CHOICE_SCENARIOS = [
         ] }],
       params: { max_match: false },
     }) },
+];
+
+// ---- trial-interest tab scenarios (unordered interest lists, no queues) ---- //
+const ipat = (id, name, interest, genomics) => ({ id, name, attrs: { cancer_type: "NSCLC", genomics: genomics || [] }, preferences: {}, interest: interest || [] });
+const iState = (patients, trials) => ({ fields: CHOICE_FIELDS(), patients, trials: trials || [ctrial("T1", "Trial A"), ctrial("T2", "Trial B"), ctrial("T3", "Trial C")], params: { max_match: false } });
+const INTEREST_SCENARIOS = [
+  { name: "1 · Thursday board", blurb: "The meeting artifact: the optimizer proposes a fill-maximizing placement, and each trial card shows its BACKFILL list — who steps in if the offer falls through. Four patients, three seats: someone waits, and the board shows exactly who and why. Validate the proposals, then work the offers through the week.",
+    factory: () => iState([
+      ipat("P1", "Eleanor Hughes", ["T1", "T2"]),
+      ipat("P2", "Marcus Bell", ["T1", "T3"]),
+      ipat("P3", "Priya Nair", ["T1"]),
+      ipat("P4", "Leo Tran", ["T2", "T3"])]) },
+  { name: "2 · Offer falls through → backfill steps in", blurb: "Marcus is proposed at Trial A (his only interest), Priya at B; Eleanor is the backfill on both. Advance Marcus's offer and make it fall through — declined, pre-screen ✕, or screen ✕ — and Eleanor is promoted the moment it happens, not at next Thursday's meeting.",
+    factory: () => iState([
+      ipat("P1", "Eleanor Hughes", ["T1", "T2"]),
+      ipat("P2", "Marcus Bell", ["T1"]),
+      ipat("P3", "Priya Nair", ["T2"])],
+      [ctrial("T1", "Trial A"), ctrial("T2", "Trial B")]) },
+  { name: "3 · Team override (a free pin)", blurb: "Everyone is interested in everything, so any seating fills 3/3 — the proposal you see is one of six equally-optimal plans, and the TEAM breaks the tie, not a queue. Pin Marcus into Trial A from its backfill list: the confirm dialog shows no projected cost, and the optimizer reroutes Eleanor around the pin.",
+    factory: () => iState([
+      ipat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
+      ipat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
+      ipat("P3", "Priya Nair", ["T1", "T2", "T3"])]) },
+  { name: "4 · A pin that costs (KRAS G12C)", blurb: "Trial C requires KRAS G12C and only Marcus carries it, so the proposal routes him to C and fills 3/3. Pin Marcus to Trial A instead: the confirm dialog warns that C strands and a patient goes unmatched — the price of the deviation, shown before the team commits.",
+    factory: () => ({
+      fields: CHOICE_FIELDS(),
+      patients: [
+        ipat("P1", "Eleanor Hughes", ["T1", "T2"]),
+        ipat("P2", "Marcus Bell", ["T1", "T2", "T3"], ["KRAS G12C"]),
+        ipat("P3", "Priya Nair", ["T1", "T2"])],
+      trials: [ctrial("T1", "Trial A"), ctrial("T2", "Trial B"),
+        { id: "T3", name: "Trial C", slots: 1, criteria: [
+          { conds: [{ field: "cancer_type", op: "==", value: "NSCLC", value2: null }] },
+          { conds: [{ field: "genomics", op: "includes", value: "KRAS G12C", value2: null }] },
+        ] }],
+      params: { max_match: false },
+    }) },
+  { name: "5 · Interest vs ranked queue", blurb: "The same trio as the Patient-choice tab's \"identical rankings\" scenario, but with unordered interest instead of ranks: there is no queue and no ♥ scores, so all six seatings tie and the solver picks one arbitrarily. Preference enters LATER, at the appointment — if the patient wants a different open trial, that's a pin (deviation) with a visible cost. Compare with the queue tab, where preference is encoded upfront and first-come breaks ties.",
+    factory: () => iState([
+      ipat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
+      ipat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
+      ipat("P3", "Priya Nair", ["T1", "T2", "T3"])]) },
 ];
 
 const state = {
@@ -184,6 +227,7 @@ const storeKey = (tabId) => "mp_tab_state_v1_" + tabId;
 })();
 function defaultTabState(tab) {
   if (tab.id === "choice") return CHOICE_SCENARIOS[0].factory();
+  if (tab.id === "v2interest") return INTEREST_SCENARIOS[0].factory();
   const eng = tab.engine(); return eng.scenarioState(eng.DEFAULT_SCENARIO);
 }
 function loadTabRaw(tab) {
@@ -212,6 +256,26 @@ function applyChoices() {
     p.choices.forEach((tid, i) => { if (tid && state.trials.some((t) => t.id === tid)) p.preferences[tid] = CHOICE_SCORES[i]; });
   });
 }
+
+// ---- trial interest (interest tab): unordered lists, offer lifecycle ---- //
+// p.interest = [trialIds]; p.outcomes = { tid: "declined"|"prescreen"|"screen" };
+// p.offer = { trial, stage: "offered"|"consented"|"prescreened" }; p.pinned; p.enrolled.
+function ensureInterest(p) {
+  if (!Array.isArray(p.interest)) p.interest = [];
+  p.interest = p.interest.filter((tid, i) => state.trials.some((t) => t.id === tid) && p.interest.indexOf(tid) === i);
+}
+function applyInterest() {
+  state.patients.forEach((p) => {
+    ensureInterest(p);
+    p.preferences = {};
+    p.interest.forEach((tid) => { if (!outAt(p, tid)) p.preferences[tid] = 1; }); // interested = score 1, unordered
+    if (p.enrolled) p.preferences[p.enrolled] = 1;
+    if (p.pinned && !state.trials.some((t) => t.id === p.pinned)) p.pinned = null;
+    if (p.offer && (p.enrolled || !state.trials.some((t) => t.id === p.offer.trial))) p.offer = null;
+  });
+}
+// out of a trial for good: choice tab records screenfails, interest tab records outcomes
+const outAt = (p, tid) => !!((p.screenfails && p.screenfails[tid]) || (p.outcomes && p.outcomes[tid]));
 
 // ---- per-trial queues: a patient joins a trial's queue when they pick it ---- //
 function nextJoinSeq() {
@@ -243,12 +307,14 @@ function loadState(raw) {
   state._pendingEvent = null;
   state.actAsId = null; // selection flow re-anchors to the first patient of the new state
   if (currentTab().choice) state.patients.forEach(ensureChoices);
+  if (currentTab().interest) state.patients.forEach(ensureInterest);
   renderInputs();
   renderEngineParams();
   runAndRender();
 }
 function runAndRender() {
   if (currentTab().choice) applyChoices();
+  else if (currentTab().interest) applyInterest();
   renderPreviews();
   const st = payload();
   if (!st.patients.length || !st.trials.length) { renderError("Add at least one patient and one trial."); return; }
@@ -258,9 +324,9 @@ function runAndRender() {
     const { result } = currentEngine().match(st); state.lastResult = result;
     noteProjectionShift(prev, projSummary(result));
     renderResults(result); renderPreviews();
-    // the selection flow shows result-derived info (eligibility, fill, blocks) — keep it in sync.
-    // safe to re-render: it's buttons/chips only, no text inputs to lose focus on.
-    if (currentTab().choice && state.view === "simple") renderPreferences();
+    // the selection/interest flows show result-derived info (eligibility, fill, blocks)
+    // — keep them in sync. Safe to re-render: buttons/chips only, no text inputs.
+    if ((currentTab().choice || currentTab().interest) && state.view === "simple") renderPreferences();
   }
   catch (e) { state._pendingEvent = null; renderError("Could not compute: " + e.message); }
 }
@@ -284,7 +350,14 @@ function applyTabChrome() {
   const h = $("#prefHeading"); h.innerHTML = "";
   if (tab.choice && state.view === "simple") { h.append("🧭 Patient selection "); h.appendChild(el("span", { class: "count" }, ": act as a patient · add up to 3 trials in order (1st ♥3 / 2nd ♥2 / 3rd ♥1) · adding joins that trial's queue")); }
   else if (tab.choice) { h.append("🎯 Top-3 choices "); h.appendChild(el("span", { class: "count" }, ": quick-edit rank table · auto-scores ♥3 / ♥2 / ♥1; unpicked = 0 (won't take)")); }
+  else if (tab.interest && state.view === "simple") { h.append("🗂️ Interest lists "); h.appendChild(el("span", { class: "count" }, ": the team marks which trials each patient could be offered · unordered — no ranks, no queue")); }
+  else if (tab.interest) { h.append("🗂️ Interest matrix "); h.appendChild(el("span", { class: "count" }, ": checked = could be offered this trial; unchecked = the optimizer never places them there")); }
   else { h.append("⭐ Preferences "); h.appendChild(el("span", { class: "count" }, ": higher = wants it more; 0 = won't take it")); }
+  const qt = $("#queueHeadTitle"), qs = $("#queueHeadSub");
+  if (qt) {
+    if (tab.interest) { qt.textContent = "📋 Meeting board"; qs.textContent = ": proposals to validate · backfill per trial · offers worked through the week"; }
+    else { qt.textContent = "🎟️ Trial queues"; qs.textContent = ": first-come tiebreak, per trial"; }
+  }
   applyFlowLayout();
 }
 
@@ -294,6 +367,12 @@ const FLOW_TABS = [
   { id: "select", icon: "🧭", label: "Patient selection", hint: "act as a patient · rank trials" },
   { id: "queues", icon: "🎟️", label: "Queues & results", hint: "prescreen · decision log · board" },
 ];
+const FLOW_TABS_INTEREST = [
+  { id: "setup", icon: "🛠️", label: "Patients & trials", hint: "edit the inputs" },
+  { id: "select", icon: "🗂️", label: "Interest lists", hint: "mark offerable trials per patient" },
+  { id: "queues", icon: "📋", label: "Meeting board & results", hint: "proposals · backfill · offers · log" },
+];
+function flowSteps() { return currentTab().interest ? FLOW_TABS_INTEREST : FLOW_TABS; }
 const flowKey = () => "mp_flow_tab_v1_" + state.tab;
 function restoreFlowTab() {
   let saved = null;
@@ -303,7 +382,7 @@ function restoreFlowTab() {
 function renderFlowTabs() {
   const nav = $("#flowTabs"); if (!nav) return;
   nav.innerHTML = "";
-  FLOW_TABS.forEach((f, i) => {
+  flowSteps().forEach((f, i) => {
     const badge = (f.id === "queues" && state.events.length)
       ? el("span", { class: "ftab-badge", title: state.events.length + " logged decisions" }, String(state.events.length)) : null;
     nav.appendChild(el("button", {
@@ -321,11 +400,11 @@ function renderFlowTabs() {
 // hides the sections that don't belong to the active step. The per-section inline
 // display logic (rules by feature, queues by tab) keeps working underneath.
 function applyFlowLayout() {
-  const choice = currentTab().choice;
-  $("#flowTabs").style.display = choice ? "" : "none";
-  document.body.classList.toggle("flow-active", choice);
-  FLOW_TABS.forEach((f) => document.body.classList.toggle("flow-" + f.id, choice && state.flowTab === f.id));
-  if (choice) renderFlowTabs();
+  const flow = currentTab().choice || currentTab().interest;
+  $("#flowTabs").style.display = flow ? "" : "none";
+  document.body.classList.toggle("flow-active", flow);
+  flowSteps().forEach((f) => document.body.classList.toggle("flow-" + f.id, flow && state.flowTab === f.id));
+  if (flow) renderFlowTabs();
 }
 function setFlowTab(id) {
   if (state.flowTab === id) return;
@@ -344,10 +423,16 @@ function setTab(id) {
   renderTabs(); applyTabChrome(); populateScenarios();
   loadState(loadTabRaw(currentTab()));
 }
-function tabScenarios() { const tab = currentTab(); return tab.id === "choice" ? CHOICE_SCENARIOS : tab.engine().scenarios; }
+function tabScenarios() {
+  const tab = currentTab();
+  if (tab.id === "choice") return CHOICE_SCENARIOS;
+  if (tab.id === "v2interest") return INTEREST_SCENARIOS;
+  return tab.engine().scenarios;
+}
 function seedScenario(name) {
   const tab = currentTab();
-  if (tab.id === "choice") { const s = CHOICE_SCENARIOS.find((x) => x.name === name) || CHOICE_SCENARIOS[0]; loadState(s.factory()); }
+  const local = tab.id === "choice" ? CHOICE_SCENARIOS : (tab.id === "v2interest" ? INTEREST_SCENARIOS : null);
+  if (local) { const s = local.find((x) => x.name === name) || local[0]; loadState(s.factory()); }
   else loadState(tab.engine().scenarioState(name));
 }
 function populateScenarios() {
@@ -563,6 +648,10 @@ function renderPreferences() {
     if (state.view === "simple") renderSelectionFlow(); else renderChoicePicker();
     return;
   }
+  if (currentTab().interest) {
+    if (state.view === "simple") renderInterestFlow(); else renderInterestMatrix();
+    return;
+  }
   const wrap = $("#prefMatrix"); wrap.innerHTML = "";
   const tbl = el("table", { class: "mtx pref-table" });
   const head = el("tr", {}, [el("th", {}, "patient \\ trial")]);
@@ -644,12 +733,12 @@ function blocksCount(p, t, d) {
   if (!others.length) return 0;
   const caps = {}; state.trials.forEach((tr) => { caps[tr.id] = Math.max(0, Math.max(1, tr.slots || 1) - enrolledCount(tr.id)); });
   const adj = others.map((pt) => {
-    const sel = (pt.choices || []).filter(Boolean);
+    const sel = currentTab().interest ? (pt.interest || []) : (pt.choices || []).filter(Boolean);
     const piX = d.patient_ids.indexOf(pt.id);
     return state.trials.filter((tr) => {
       const tiX = d.trial_ids.indexOf(tr.id);
       const elig = piX >= 0 && tiX >= 0 && d.eligibility[piX][tiX];
-      return elig && !(pt.screenfails && pt.screenfails[tr.id]) && (sel.length ? sel.includes(tr.id) : true);
+      return elig && !outAt(pt, tr.id) && (sel.length ? sel.includes(tr.id) : true);
     }).map((tr) => tr.id);
   });
   const matchSize = (capMap) => {
@@ -813,6 +902,171 @@ function renderSelectionFlow() {
   wrap.appendChild(el("p", { class: "hint" }, "Suggestions only: nothing is assigned until the optimizer runs on the selections. “Blocks N” = seating this patient there would leave N other waiting patients unmatchable (judged by their selections, or by eligibility if they haven't selected yet). The Advanced view has a quick-edit rank table."));
 }
 
+// ---- trial-interest flow (interest tab, simple view) ---- //
+// The team reviews one patient at a time: eligible trials get a "mark interest"
+// toggle (unordered — no ranks, no queue join). The optimizer's current proposal
+// and each trial's pressure (interested count, blocks-N) inform the marking.
+function toggleInterest(p, tid) {
+  ensureInterest(p);
+  if (p.interest.includes(tid)) {
+    p.interest = p.interest.filter((x) => x !== tid);
+    if (p.pinned === tid) p.pinned = null;
+    if (p.offer && p.offer.trial === tid) p.offer = null;
+  } else p.interest.push(tid);
+  runAndRender();
+}
+const interestedCount = (tid) => state.patients.filter((x) => (x.interest || []).includes(tid) && !outAt(x, tid)).length;
+const OFFER_STAGE_LABEL = { offered: "offered · awaiting consent", consented: "consented · pre-screen next", prescreened: "pre-screen ✓ · screening" };
+
+function renderInterestFlow() {
+  const wrap = $("#prefMatrix"); wrap.innerHTML = "";
+  if (!state.patients.length || !state.trials.length) { wrap.appendChild(el("p", { class: "muted" }, "Add at least one patient and one trial.")); return; }
+  if (!state.patients.some((x) => x.id === state.actAsId)) state.actAsId = state.patients[0].id;
+  const p = state.patients.find((x) => x.id === state.actAsId);
+  ensureInterest(p);
+  const d = state.lastResult;
+
+  // patient switcher
+  const chips = el("div", { class: "flow-patients" });
+  state.patients.forEach((pt) => {
+    ensureInterest(pt);
+    chips.appendChild(el("button", { class: "flow-pt" + (pt.id === state.actAsId ? " active" : "") + (pt.enrolled ? " done" : ""), onclick: () => { state.actAsId = pt.id; renderPreferences(); } },
+      [el("b", {}, pt.name), el("span", { class: "flow-pt-ct" }, pt.enrolled ? " ✓ enrolled" : ` ${pt.interest.length} marked`)]));
+  });
+  wrap.appendChild(chips);
+
+  const split = el("div", { class: "flow-split" });
+  const left = el("div", { class: "flow-left" });
+
+  // right: this patient's unordered interest list + where the optimizer puts them
+  const fresh = d && d.patient_ids && d.trial_ids
+    && state.patients.every((x) => d.patient_ids.indexOf(x.id) >= 0)
+    && state.trials.every((x) => d.trial_ids.indexOf(x.id) >= 0);
+  const myAsn = fresh ? d.assignments.find((a) => a.patient_id === p.id) : null;
+
+  const panel = el("div", { class: "flow-selpanel" });
+  panel.appendChild(el("div", { class: "selpanel-head" }, [el("b", {}, p.name + "'s interest list"), el("span", { class: "count" }, p.enrolled ? " · enrolled" : ` · ${p.interest.length} trial${p.interest.length === 1 ? "" : "s"} · unordered`)]));
+  if (p.enrolled) {
+    const te = state.trials.find((x) => x.id === p.enrolled);
+    panel.appendChild(el("div", { class: "selslot enrolled" }, [
+      el("span", { class: "selslot-rank" }, "✓ enrolled"),
+      el("div", { class: "selslot-name" }, te ? te.name : p.enrolled),
+      el("div", { class: "selslot-seated" }, "passed screening · seat consumed"),
+    ]));
+  } else if (!p.interest.length) {
+    panel.appendChild(el("div", { class: "selslot empty" }, [el("div", { class: "selslot-empty" }, "empty · mark trials from the list — the optimizer can only propose trials on this list")]));
+  } else p.interest.forEach((tid) => {
+    const t = state.trials.find((x) => x.id === tid);
+    const slot = el("div", { class: "selslot" }, [
+      el("div", { class: "selslot-top" }, [
+        el("span", { class: "selslot-rank" }, "interested"),
+        el("span", { class: "selslot-btns" }, [el("button", { class: "sel-rm", title: "remove from the interest list", onclick: () => toggleInterest(p, tid) }, "✕")]),
+      ]),
+      el("div", { class: "selslot-name" }, t ? t.name : tid),
+    ]);
+    if (p.offer && p.offer.trial === tid) slot.appendChild(el("div", { class: "selslot-seated" }, "🩺 " + OFFER_STAGE_LABEL[p.offer.stage]));
+    else if (p.pinned === tid) slot.appendChild(el("div", { class: "selslot-seated" }, "📌 pinned by the team"));
+    else if (myAsn && myAsn.trial_id === tid) slot.appendChild(el("div", { class: "selslot-seated" }, "✓ optimizer proposes them here"));
+    panel.appendChild(slot);
+  });
+  if (!p.enrolled) panel.appendChild(el("p", { class: "selpanel-note" }, "Unordered: no ranks, no queue. The list only says which trials the team could offer — the meeting board decides who is actually proposed where."));
+
+  split.appendChild(left);
+  split.appendChild(panel);
+  wrap.appendChild(split);
+
+  if (p.enrolled) {
+    const te = state.trials.find((x) => x.id === p.enrolled);
+    left.appendChild(el("div", { class: "flow-enrolled" }, `✓ ${p.name} is enrolled in ${te ? te.name : p.enrolled}. Their other interests were released.`));
+    return;
+  }
+  if (!fresh) { left.appendChild(el("p", { class: "muted" }, "Computing…")); return; }
+  const pi = d.patient_ids.indexOf(p.id);
+
+  const options = state.trials.map((t) => {
+    const ti = d.trial_ids.indexOf(t.id);
+    const gate = d.gate_detail[pi][ti];
+    const fill = d.trial_fill[t.id] || { filled: 0, total: Math.max(1, t.slots || 1) };
+    return { t, ti, gate, eligible: d.eligibility[pi][ti], fill,
+      marked: p.interest.includes(t.id), out: outAt(p, t.id),
+      blocks: d.eligibility[pi][ti] ? blocksCount(p, t, d) : 0 };
+  });
+  const rec = options.filter((o) => o.eligible && !o.out).sort((a, b) => a.blocks - b.blocks || a.ti - b.ti);
+  const bad = options.filter((o) => !o.eligible || o.out);
+  const condChip = (c, ok) => el("span", { class: "tro-chip " + (ok ? "ok" : "fail") }, `${ok ? "✓" : "✕"} ${c.label} ${c.op_symbol} ${c.value}`);
+
+  const recSec = el("div", { class: "tro-sec" });
+  recSec.appendChild(el("div", { class: "tro-head rec" }, [el("b", {}, "ELIGIBLE"), el("span", {}, "the team can mark any of these · ranked by who else stays matchable")]));
+  rec.forEach((o) => {
+    const open = Math.max(0, o.fill.total - o.fill.filled);
+    const chips2 = el("span", { class: "tro-chips" });
+    if (!o.gate.groups.length) chips2.appendChild(el("span", { class: "tro-chip ok" }, "✓ open to all"));
+    o.gate.groups.forEach((g) => { const c = g.conds.find((x) => x.passed) || g.conds[0]; if (c) chips2.appendChild(condChip(c, true)); });
+    const btn = o.marked
+      ? el("button", { class: "tro-btn rm", title: "remove from the interest list", onclick: () => toggleInterest(p, o.t.id) }, "Interested ✕")
+      : el("button", { class: "tro-btn add", title: "mark: this trial could be offered to this patient", onclick: () => toggleInterest(p, o.t.id) }, "Mark interest");
+    const side = el("div", { class: "tro-side" }, [
+      o.blocks > 0 ? el("span", { class: "tro-badge warn" }, `⚠ blocks ${o.blocks}`) : el("span", { class: "tro-badge ok" }, "✓ blocks no one"),
+      el("span", { class: "tro-meta" }, `${open}/${o.fill.total} slot${o.fill.total > 1 ? "s" : ""} open`),
+      el("span", { class: "tro-meta" }, `${interestedCount(o.t.id)} interested`),
+      btn,
+    ]);
+    recSec.appendChild(el("div", { class: "tro-card" + (o.marked ? " sel" : "") }, [
+      el("div", { class: "tro-main" }, [
+        el("div", { class: "tro-name" }, o.t.name),
+        el("div", { class: "tro-sub" }, [document.createTextNode("Matched on "), chips2]),
+      ]),
+      side,
+    ]));
+  });
+  left.appendChild(recSec);
+
+  if (bad.length) {
+    const badSec = el("div", { class: "tro-sec" });
+    badSec.appendChild(el("div", { class: "tro-head bad" }, [el("b", {}, "NOT A FIT"), el("span", {}, "a required criterion did not pass, or a prior offer fell through")]));
+    bad.forEach((o) => {
+      const chips2 = el("span", { class: "tro-chips" });
+      const oc = p.outcomes && p.outcomes[o.t.id];
+      if (oc) chips2.appendChild(el("span", { class: "tro-chip fail" }, "✕ " + (oc === "declined" ? "declined the offer" : oc === "prescreen" ? "failed pre-screening" : "failed screening")));
+      o.gate.groups.filter((g) => !g.passed).forEach((g) => { const c = g.conds[0]; if (c) chips2.appendChild(condChip(c, false)); });
+      badSec.appendChild(el("div", { class: "tro-card notfit" }, [
+        el("div", { class: "tro-main" }, [
+          el("div", { class: "tro-name" }, o.t.name),
+          el("div", { class: "tro-sub" }, [document.createTextNode("Failed "), chips2]),
+        ]),
+      ]));
+    });
+    left.appendChild(badSec);
+  }
+
+  wrap.appendChild(el("p", { class: "hint" }, "Decision support only: marking interest never assigns anyone — the meeting board (step 3) shows the optimizer's proposal over these lists, and the team validates or pins deviations there. “Blocks N” = seating this patient there would leave N other waiting patients unmatchable."));
+}
+
+// advanced view: patients × trials checkbox matrix
+function renderInterestMatrix() {
+  const wrap = $("#prefMatrix"); wrap.innerHTML = "";
+  const tbl = el("table", { class: "mtx pref-table" });
+  const head = el("tr", {}, [el("th", {}, "patient \\ trial")]);
+  state.trials.forEach((t) => head.appendChild(el("th", {}, t.name)));
+  tbl.appendChild(head);
+  state.patients.forEach((p) => {
+    ensureInterest(p);
+    const tr = el("tr", {}, [el("td", { class: "rowhead" }, p.name + (p.enrolled ? " · ✓ enrolled" : ""))]);
+    state.trials.forEach((t) => {
+      const out = outAt(p, t.id);
+      tr.appendChild(el("td", { style: "text-align:center" }, [el("input", {
+        type: "checkbox", class: "interest-cb", checked: p.interest.includes(t.id) ? "" : null,
+        disabled: (p.enrolled || out) ? "" : null,
+        title: out ? "a prior offer here fell through — out of this trial for good" : (p.enrolled ? "enrolled — interests are settled" : "interested = could be offered this trial"),
+        onchange: () => toggleInterest(p, t.id),
+      })]));
+    });
+    tbl.appendChild(tr);
+  });
+  wrap.appendChild(tbl);
+  wrap.appendChild(el("p", { class: "hint" }, "Unordered interest: every checked cell scores the same, so the optimizer proposes the placement that fills the most seats. Unchecked = the optimizer never places the patient there."));
+}
+
 // ---- fields manager (advanced) ---- //
 function renderFields() {
   const card = $("#fieldsCard"); card.innerHTML = "";
@@ -939,12 +1193,13 @@ function renderError(msg) { state._pendingEvent = null; document.body.classList.
 
 function renderResults(d) {
   document.body.classList.remove("has-error");
-  // trial queues render in their own section ABOVE the results panel
+  // trial queues (choice) / meeting board (interest) render ABOVE the results panel
   const qsec = $("#queueSection"), qpanel = $("#queuePanel");
-  const showQueues = currentTab().choice;
-  qsec.style.display = showQueues ? "" : "none";
+  const tab = currentTab();
+  const showBoard = tab.choice || tab.interest;
+  qsec.style.display = showBoard ? "" : "none";
   qpanel.innerHTML = "";
-  if (showQueues) { qpanel.appendChild(queueCard(d)); qpanel.appendChild(eventLogCard()); renderFlowTabs(); }
+  if (showBoard) { qpanel.appendChild(tab.interest ? interestBoardCard(d) : queueCard(d)); qpanel.appendChild(eventLogCard()); renderFlowTabs(); }
 
   const root = $("#results"); root.innerHTML = "";
   root.appendChild(unassignedCard(d));
@@ -1006,7 +1261,7 @@ function logEventNow(icon, text, chips) {
 function queueAction(icon, text, opts) { state._pendingEvent = Object.assign({ icon, text }, opts || {}); }
 function noteProjectionShift(prev, next) {
   const pending = state._pendingEvent; state._pendingEvent = null;
-  if (!currentTab().choice || !next) return;
+  if (!(currentTab().choice || currentTab().interest) || !next) return;
   const chips = shiftChips(prev, next);
   const key = (s) => s.unmatched.map((u) => u.id).sort().join(",");
   const strandingChanged = prev && key(prev) !== key(next);
@@ -1174,6 +1429,177 @@ function queueCard(d) {
   ]);
 }
 
+// ---- meeting board (trial-interest tab): proposals + backfill + offer lifecycle ---- //
+// The optimizer's proposal is the Thursday-meeting artifact: the team validates it,
+// pins deviations, then works each offer through the week. A decline or screen-fail
+// promotes the trial's backfill IMMEDIATELY (a re-solve around the new fact) instead
+// of waiting for the next meeting.
+const OUTCOME_PHRASE = { declined: "declined the offer at", prescreen: "failed pre-screening at", screen: "failed screening at" };
+
+function offerStart(p, t) {
+  p.offer = { trial: t.id, stage: "offered" };
+  p.pinned = t.id; // the seat is held while the conversation plays out
+  queueAction("🩺", `${p.name} will be offered ${t.name} at next week's appointment — seat held.`);
+  runAndRender();
+}
+function offerConsent(p, t) {
+  p.offer = { trial: t.id, stage: "consented" };
+  queueAction("✍️", `${p.name} consented to ${t.name} — physician pinged the research nurse to pre-screen.`);
+  runAndRender();
+}
+function offerPrescreenPass(p, t) {
+  p.offer = { trial: t.id, stage: "prescreened" };
+  queueAction("🔬", `${p.name} passed pre-screening at ${t.name} — screening next.`);
+  runAndRender();
+}
+function offerEnroll(p, t) {
+  p.enrolled = t.id; p.pinned = null; p.offer = null;
+  p.interest = [t.id]; // other interests released
+  queueAction("✓", `${p.name} passed screening and ENROLLED at ${t.name} — seat consumed, other interests released.`);
+  runAndRender();
+}
+function offerFallThrough(p, t, kind) {
+  if (!p.outcomes) p.outcomes = {};
+  p.outcomes[t.id] = kind; // out of THIS trial for good; other interests stand
+  p.interest = (p.interest || []).filter((x) => x !== t.id);
+  if (p.pinned === t.id) p.pinned = null;
+  if (p.offer && p.offer.trial === t.id) p.offer = null;
+  queueAction(kind === "declined" ? "🙅" : "✕", `${p.name} ${OUTCOME_PHRASE[kind]} ${t.name} — backfill promotes now, not next Thursday.`);
+  runAndRender();
+}
+
+// backfill list for a trial: who the optimizer would seat next as seats open.
+// Computed by counterfactual re-solves — ban the current occupants (and prior
+// backfills) from THIS trial only and see who the optimizer moves in. A candidate
+// may currently be proposed elsewhere: promoting them cascades, which the re-solve
+// handles for real when the time comes.
+function backfillFor(t, d) {
+  const banned = new Set(d.assignments.filter((a) => a.trial_id === t.id).map((a) => a.patient_id));
+  state.patients.forEach((p) => { if (outAt(p, t.id) || p.enrolled) banned.add(p.id); });
+  const out = [];
+  for (let guard = 0; guard < 4 && out.length < 3; guard++) {
+    const sim = simulate((st) => st.patients.forEach((sp) => {
+      if (!banned.has(sp.id) || sp.enrolled === t.id) return;
+      if (sp.preferences) delete sp.preferences[t.id];
+      if (sp.pinned === t.id) sp.pinned = null;
+    }));
+    if (!sim) break;
+    const next = sim.assignments.filter((a) => a.trial_id === t.id && !banned.has(a.patient_id)).map((a) => a.patient_id);
+    if (!next.length) break;
+    for (const pid of next) { if (out.length < 3) { out.push(pid); banned.add(pid); } }
+  }
+  return out;
+}
+
+// team deviation: pin a backfill candidate into the seat, showing the cost first
+function pinBackfill(p, t) {
+  const cur = projSummary(state.lastResult);
+  const sim = projSummary(simulate((st) => { const sp = st.patients.find((x) => x.id === p.id); if (sp) { sp.pinned = t.id; if (sp.preferences) sp.preferences[t.id] = 1; } }));
+  const planned = cur ? cur.seats[p.id] : undefined;
+  const lines = [
+    { text: `The proposal ${planned ? `seats ${p.name} at ${trialName(planned)}` : `leaves ${p.name} waiting`}.` },
+    { text: `Pinning holds ${t.name}'s seat for them; the optimizer re-plans everyone else around it.` },
+  ];
+  if (cur && sim) {
+    if (sim.total !== cur.total) lines.push({ cls: "warn", text: `Projected total ♥${cur.total} → ♥${sim.total}.` });
+    const was = new Set(cur.unmatched.map((u) => u.id));
+    const newly = sim.unmatched.filter((u) => !was.has(u.id));
+    if (newly.length) lines.push({ cls: "bad", text: `⚠ ${newly.map((u) => u.name).join(", ")} would become projected unmatched.` });
+    const now = new Set(sim.unmatched.map((u) => u.id));
+    const rescued = cur.unmatched.filter((u) => !now.has(u.id));
+    if (rescued.length) lines.push({ text: `${rescued.map((u) => u.name).join(", ")} would become projected matched.` });
+    if (sim.total === cur.total && !newly.length && !rescued.length) lines.push({ text: "No projected cost — this only re-balances an exact tie; the team is simply breaking it." });
+  }
+  confirmModal({
+    title: `Deviate: pin ${p.name} to ${t.name}`,
+    lines,
+    confirmLabel: "Pin the seat",
+    onConfirm: () => { p.pinned = t.id; queueAction("📌", `Team override: ${p.name} pinned to ${t.name} (deviates from the proposal).`); runAndRender(); },
+  });
+}
+function unpin(p) {
+  const tn = trialName(p.pinned);
+  p.pinned = null;
+  queueAction("📍", `${p.name} unpinned from ${tn} — the optimizer decides that seat again.`);
+  runAndRender();
+}
+
+function interestBoardCard(d) {
+  const trialsBox = el("div", { class: "queue-trials" });
+  state.trials.forEach((t) => {
+    const box = el("div", { class: "queue-trial" });
+    const total = Math.max(1, t.slots || 1);
+    const seated = d.assignments.filter((a) => a.trial_id === t.id);
+    const open = Math.max(0, total - seated.length);
+    box.appendChild(el("div", { class: "queue-title" }, [
+      document.createTextNode(t.name),
+      el("span", { class: "queue-open" + (seated.length === total ? " full" : "") }, ` · ${seated.length}/${total} proposed${open ? ` · ${open} open` : ""}`),
+    ]));
+
+    // proposed / offered / enrolled occupants
+    seated.forEach((a) => {
+      const p = state.patients.find((x) => x.id === a.patient_id);
+      const enrolledHere = p && p.enrolled === t.id;
+      const stage = enrolledHere ? "enrolled" : (p && p.offer && p.offer.trial === t.id ? p.offer.stage : "proposed");
+      const pinnedHere = p && p.pinned === t.id && !enrolledHere;
+      const stageTxt = stage === "enrolled" ? "✓ enrolled" : stage === "proposed" ? (pinnedHere ? "📌 pinned · not yet offered" : "proposed · not yet offered") : "🩺 " + OFFER_STAGE_LABEL[stage];
+      const row = el("div", { class: "queue-row" + (enrolledHere ? " enrolled" : " seated") }, [
+        el("span", { class: "queue-nm clickable", onclick: () => openPatient(a.patient_id) }, a.patient_name),
+        el("span", { class: "queue-status" + (enrolledHere || stage !== "proposed" ? " ok" : "") }, stageTxt),
+      ]);
+      if (p && !enrolledHere) {
+        const btns = el("span", { class: "queue-ps" });
+        if (stage === "proposed") {
+          btns.appendChild(el("button", { class: "ps-btn pass", title: "the physician presents this trial at next week's appointment — holds the seat", onclick: () => offerStart(p, t) }, "▶ offer"));
+          if (pinnedHere) btns.appendChild(el("button", { class: "queue-btn", title: "release the team pin — the optimizer decides this seat again", onclick: () => unpin(p) }, "unpin"));
+        } else if (stage === "offered") {
+          btns.appendChild(el("button", { class: "ps-btn pass", title: "patient consents — the nurse is pinged to pre-screen", onclick: () => offerConsent(p, t) }, "✓ consents"));
+          btns.appendChild(el("button", { class: "ps-btn fail", title: "patient declines — out of this trial; backfill promotes immediately", onclick: () => offerFallThrough(p, t, "declined") }, "✕ declines"));
+        } else if (stage === "consented") {
+          btns.appendChild(el("span", { class: "queue-ps-lbl" }, "pre-screen:"));
+          btns.appendChild(el("button", { class: "ps-btn pass", onclick: () => offerPrescreenPass(p, t) }, "✓ pass"));
+          btns.appendChild(el("button", { class: "ps-btn fail", title: "out of this trial; backfill promotes immediately", onclick: () => offerFallThrough(p, t, "prescreen") }, "✕ fail"));
+        } else if (stage === "prescreened") {
+          btns.appendChild(el("span", { class: "queue-ps-lbl" }, "screen:"));
+          btns.appendChild(el("button", { class: "ps-btn pass", title: "screen passes — the patient enrolls and the seat is consumed", onclick: () => offerEnroll(p, t) }, "✓ pass → enroll"));
+          btns.appendChild(el("button", { class: "ps-btn fail", title: "out of this trial; backfill promotes immediately", onclick: () => offerFallThrough(p, t, "screen") }, "✕ fail"));
+        }
+        row.appendChild(btns);
+      }
+      box.appendChild(row);
+    });
+
+    // unfilled seats
+    for (let i = 0; i < open; i++) {
+      const anyInterested = interestedCount(t.id) > 0;
+      box.appendChild(el("div", { class: "queue-row" }, [el("span", { class: "queue-empty" }, anyInterested ? "open seat — every interested patient is placed elsewhere" : "open seat — no eligible interested patient")]));
+    }
+
+    // backfill: who the optimizer would seat next if an offer falls through
+    const bf = backfillFor(t, d);
+    if (bf.length) {
+      box.appendChild(el("div", { class: "bf-head" }, "backfill — next in if an offer falls through"));
+      bf.forEach((pid, k) => {
+        const p = state.patients.find((x) => x.id === pid);
+        const now = d.active_by_pid[pid];
+        const row = el("div", { class: "queue-row bf-row" }, [
+          el("span", { class: "queue-pos" }, "#" + (k + 1)),
+          el("span", { class: "queue-nm clickable", onclick: () => openPatient(pid) }, p ? p.name : pid),
+          el("span", { class: "queue-status" }, now ? `now proposed at ${now} — would cascade` : "currently unmatched"),
+          el("span", { class: "queue-btns" }, [el("button", { class: "ps-btn pin", title: "team override: hold this seat for them instead — the cost shows before you commit", onclick: () => pinBackfill(p, t) }, "📌 pin here")]),
+        ]);
+        box.appendChild(row);
+      });
+    }
+    trialsBox.appendChild(box);
+  });
+
+  return el("section", { class: "card" }, [
+    trialsBox,
+    el("p", { class: "hint" }, "This board is the Thursday-meeting artifact: the optimizer PROPOSES the fill-maximizing placement over the interest lists, and the team validates it — nothing is recommended to a patient by the system. ▶ offer starts the real-world path (offer → consent → pre-screen → screen → enroll); the seat is held from the moment it's offered. A decline or a failed pre-screen/screen removes the patient from THAT trial only and the backfill promotes in the same re-solve — no waiting for next Thursday. 📌 pin deviates from the proposal (the projected cost shows first); every action lands in the decision log below."),
+  ]);
+}
+
 // ---- Hungarian matrix card (v3+): the padded matrix the solver actually sees ---- //
 function matrixCard(mv) {
   const tbl = el("table", { class: "mtx hmx" });
@@ -1230,10 +1656,11 @@ function updateSticky(d) {
     (d.total_score != null && (f.slotUrgency || f.patientUrgency)) ? el("span", { class: "sa-stat", title: "total combined score (pref + urgency bonuses)" }, [el("b", {}, d.total_score.toFixed(2)), " score"]) : null,
     d.unmatched.length ? el("span", { class: "sa-stat warn" }, [el("b", {}, String(d.unmatched.length)), " unmatched"]) : null,
   ]);
-  const isChoice = currentTab().choice;
+  const isChoice = currentTab().choice, isInterest = currentTab().interest;
   bar.appendChild(el("div", { class: "sa-info" }, [
-    el("div", { class: "sa-title" }, isChoice ? "Projected placements" : "Assignments"),
-    isChoice ? el("div", { class: "sa-subtitle" }, "a forecast, not enrollment: assumes everyone in queue passes prescreening · ✓ = enrolled (locked)") : null,
+    el("div", { class: "sa-title" }, isInterest ? "Proposed placements" : (isChoice ? "Projected placements" : "Assignments")),
+    isInterest ? el("div", { class: "sa-subtitle" }, "the meeting proposal, not enrollment: assumes every offer lands · 📌 = pinned · ✓ = enrolled (locked)")
+      : (isChoice ? el("div", { class: "sa-subtitle" }, "a forecast, not enrollment: assumes everyone in queue passes prescreening · ✓ = enrolled (locked)") : null),
     stats, maxMatchToggle(d)]));
   // right: one box per trial with its patient pills
   const byAssign = {}, byEmpty = {};
@@ -1249,8 +1676,9 @@ function updateSticky(d) {
       const urg = pd && pd.urgency && pd.urgency !== "none" ? pd.urgency : null;
       const stp = state.patients.find((x) => x.id === a.patient_id);
       const enr = stp && stp.enrolled === tid;
-      body.appendChild(el("span", { class: "sa-pt" + (enr ? " enrolled" : ""), title: (enr ? "ENROLLED (passed prescreening) · " : "") + "preference " + a.pref + (urg ? " · urgency " + urg : ""), onclick: () => openPatient(a.patient_id) },
-        [enr ? el("span", { class: "sa-pt-enr" }, "✓") : null, urg ? el("span", { class: "sa-pt-urg u-" + urg }, "🚨") : null, el("span", { class: "sa-pt-nm" }, a.patient_name), el("span", { class: "sa-pt-pref" }, "♥" + a.pref)]));
+      const pin = !enr && isInterest && stp && stp.pinned === tid;
+      body.appendChild(el("span", { class: "sa-pt" + (enr ? " enrolled" : ""), title: (enr ? "ENROLLED · " : "") + (pin ? "PINNED by the team · " : "") + "preference " + a.pref + (urg ? " · urgency " + urg : ""), onclick: () => openPatient(a.patient_id) },
+        [enr ? el("span", { class: "sa-pt-enr" }, "✓") : null, pin ? el("span", { class: "sa-pt-enr" }, "📌") : null, urg ? el("span", { class: "sa-pt-urg u-" + urg }, "🚨") : null, el("span", { class: "sa-pt-nm" }, a.patient_name), el("span", { class: "sa-pt-pref" }, isInterest ? "★" : "♥" + a.pref)]));
     });
     (byEmpty[tid] || []).forEach(() => body.appendChild(el("span", { class: "sa-pt open" }, "open")));
     const texp = (d.trial_expires && d.trial_expires[i] != null) ? d.trial_expires[i] : null;
@@ -1396,6 +1824,7 @@ function init() {
   setView("simple");
   let savedTab = null;
   try { savedTab = localStorage.getItem("mp_active_tab_v1"); } catch (e) { /* ignore */ }
+  if (savedTab === "v2matrix") savedTab = "v2interest"; // uneven-matrix tab replaced by Trial interest
   state.tab = TABS.some((t) => t.id === savedTab) ? savedTab : TABS[0].id;
   restoreFlowTab();
   renderTabs();

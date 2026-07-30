@@ -17,10 +17,15 @@ Cloudflare Pages, Netlify…). There is **no backend** — the matching engine
   - **v2 · Patient choice** — same engine, but preferences come from SphinxMatch-style
     ranked picks: each patient ranks up to 3 trials; scores derive automatically
     (1st ♥3, 2nd ♥2, 3rd ♥1, unpicked 0 = won't take).
-  - **v2 · Uneven matrix** — the SAME algorithm as v2 (no changes), just visualizing
-    how it already pads non-square inputs: dummy "unmatched" columns absorb surplus
-    patients, dummy rows absorb surplus slots. The padded Hungarian matrix renders
-    under the results (also on v3/v4).
+  - **v2 · Trial interest** — the SAME algorithm driven by UNORDERED interest lists
+    (the Thursday-meeting workflow): the clinical team marks which trials each
+    patient could be offered, the optimizer proposes the fill-maximizing placement
+    as the meeting artifact, and every trial shows a BACKFILL list instead of a
+    queue. Offers are worked through the week (offer → consent → pre-screen →
+    screen → enroll); a decline or screen-fail promotes the backfill immediately.
+    Team pins deviate from the proposal with the projected cost shown first.
+    (The padded Hungarian matrix from the old "Uneven matrix" tab still renders in
+    Advanced view here, and on v3/v4.)
   - **v3 · Slot urgency** — patient input is the same ranked top-3 picker (with
     per-trial queues); trials can expire in N days; cell score = rank score +
     weight × urgency (linear ramp inside a horizon, default 30 days). No-expiry
@@ -48,8 +53,18 @@ Cloudflare Pages, Netlify…). There is **no backend** — the matching engine
 | `style.css` | styling |
 | `engine.js` | v1 — Python-mirrored engine (lab-fit scoring + thresholds), kept for reference, not loaded |
 | `match-engine.js` | v2 — the frozen current engine (global `ENGINE`) |
-| `engines-v345.js` | v2-matrix / v3 / v4 — one factory, feature flags per version (global `ENGINES`) |
+| `engines-v345.js` | v2-choice / v2-interest / v3 / v4 — one factory, feature flags per version (global `ENGINES`) |
 | `app.js` | the UI (engine tabs, renders + edits state, calls the active engine) |
 
 The reference Python implementation, tests, and the graph-theory analysis live in the
 parent project (`hungarian_demo/`).
+
+## Docs
+
+- `docs/interest-vs-choice-simulation.md` — simulation results comparing trial
+  interest + backfill against patient choice + queues (and the status-quo Thursday
+  process), with the production measurement plan.
+- `docs/simulations/` — the two runnable, seeded simulation scripts behind those
+  numbers (`node docs/simulations/method-compare.js`).
+- `docs/SphinxMatch Trial Interest Flow.tldraw` — the Trial Interest workflow
+  diagram (open with tldraw).
