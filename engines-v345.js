@@ -23,7 +23,10 @@
  *       that fills the most seats. No queue tiebreak — ties are resolved by the
  *       team at the meeting. Two locks shape re-solves: `enrolled` (a consumed
  *       seat, unconditional) and `pinned` (a team decision to hold a seat for a
- *       patient — honored only while that patient is still eligible). The app
+ *       patient — honored only while that patient is still eligible). Exact ties
+ *       break by POOL SENIORITY (`pool_seq`, lower = earlier; the app resets it
+ *       to the back on a voluntary decline but keeps it on screen-fails), via
+ *       the same lexicographic lock refinement the queue tiebreak uses. The app
  *       layers backfill lists and the offer lifecycle on top of this engine.
  *       (The padded-matrix visualization from the old v2matrix tab still renders
  *       in Advanced view via matrixView.)
@@ -266,11 +269,18 @@
           for (let si = 0; si < nS; si++) if (slots[si].trial_id === p.pinned && sLock[si] === undefined && cand[pi][si]) { pLock[pi] = si; sLock[si] = pi; break; }
         });
         const base = solveTotal(W, restricted());
-        if (!features.queueTiebreak) return asnToMatched(base.asn);
+        // tie order: queueTiebreak = per-trial join order; seniorityTiebreak = one
+        // per-patient pool seniority (lower = earlier). Both only break EXACT ties.
+        const tieSeq = features.queueTiebreak
+          ? (p, sl) => (p.joined && isFinite(p.joined[sl.trial_id])) ? p.joined[sl.trial_id] : 1e9 + (p.queue_pos || 0)
+          : features.seniorityTiebreak
+            ? (p) => isFinite(p.pool_seq) ? p.pool_seq : 1e9 + (p.queue_pos || 0)
+            : null;
+        if (!tieSeq) return asnToMatched(base.asn);
         slots.forEach((sl, si) => {
           if (sLock[si] !== undefined) return; // seat already taken by an enrollee
           const entrants = patients
-            .map((p, pi) => ({ pi, seq: (p.joined && isFinite(p.joined[sl.trial_id])) ? p.joined[sl.trial_id] : 1e9 + (p.queue_pos || 0) }))
+            .map((p, pi) => ({ pi, seq: tieSeq(p, sl) }))
             .filter((x) => cand[x.pi][si] && pLock[x.pi] === undefined)
             .sort((a, b) => a.seq - b.seq);
           for (const { pi } of entrants) {
@@ -390,6 +400,7 @@
       if (features.offerLocks) {
         p.enrolled = (typeof d.enrolled === "string" && d.enrolled.trim()) ? d.enrolled.trim() : null;
         p.pinned = (typeof d.pinned === "string" && d.pinned.trim()) ? d.pinned.trim() : null;
+        p.pool_seq = isFinite(Number(d.pool_seq)) && d.pool_seq != null ? Number(d.pool_seq) : null;
       }
       return p;
     }
@@ -446,7 +457,7 @@
             preferences: Object.assign({}, p.preferences) };
           if (features.patientUrgency) o.urgency = p.urgency || "none";
           if (features.queueTiebreak) { o.joined = Object.assign({}, p.joined || {}); o.enrolled = p.enrolled || null; }
-          if (features.offerLocks) { o.enrolled = p.enrolled || null; o.pinned = p.pinned || null; }
+          if (features.offerLocks) { o.enrolled = p.enrolled || null; o.pinned = p.pinned || null; o.pool_seq = (p.pool_seq == null ? null : p.pool_seq); }
           return o;
         }),
         trials: trials.map((t) => {
@@ -724,7 +735,7 @@
     // offer lifecycle on top. Scenarios come from the app (stub kept for the API).
     v2interest: makeEngine({
       version: "v2", label: "v2 · Trial interest", tagline: "Same v2 algorithm driven by unordered interest lists: the clinical team marks which trials each patient could be offered, the optimizer proposes the fill-maximizing placement, and per-trial BACKFILL lists (not queues) stand by to replace any offer that falls through. Enrolled seats and team pins are hard locks.",
-      features: { matrixView: true, slotUrgency: false, patientUrgency: false, offerLocks: true },
+      features: { matrixView: true, slotUrgency: false, patientUrgency: false, offerLocks: true, seniorityTiebreak: true },
       scenarios: MATRIX_SCENARIOS,
     }),
     v3: makeEngine({

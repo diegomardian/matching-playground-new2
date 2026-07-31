@@ -80,7 +80,7 @@ const TABS = [
   { id: "choice", label: "v2 · Patient choice", engine: () => window.ENGINES.v2choice, choice: true,
     desc: "Same v2 algorithm, driven by the SphinxMatch selection flow: act as a patient, review recommended vs not-a-fit trials (with blocks/slots/queue info), and add up to 3 trials in order of preference. Adding a trial joins its queue for prescreening at that moment; scores derive from rank (1st ♥3, 2nd ♥2, 3rd ♥1, unpicked 0 = won't take) and exact ties break by each trial's own queue. Advanced view has a quick-edit rank table." },
   { id: "v2interest", label: "v2 · Trial interest", engine: () => window.ENGINES.v2interest, choice: false, interest: true,
-    desc: "Same v2 algorithm driven by UNORDERED interest lists — the Thursday-meeting workflow. The clinical team marks which trials each patient could be offered; the optimizer proposes the fill-maximizing placement (the meeting artifact the team validates), and every trial gets a BACKFILL list instead of a queue: who the optimizer would seat next if an offer falls through. Work offers through the week — offer → consent → pre-screen → screen → enroll; a decline or screen-fail promotes the backfill immediately instead of waiting for next Thursday. Pin a patient to deviate from the proposal; the projected cost shows before you commit." },
+    desc: "Same v2 algorithm driven by UNORDERED interest lists — the Thursday-meeting workflow. The clinical team marks which trials each patient could be offered; the optimizer proposes the fill-maximizing placement (the meeting artifact the team validates), and every trial gets a BACKFILL list instead of a queue: who the optimizer would seat next if an offer falls through. Exact ties break by pool seniority (a voluntary decline resets it to the back; a screen-fail keeps it). Work offers through the week — offer → consent → pre-screen → screen → enroll; a decline or screen-fail promotes the backfill immediately instead of waiting for next Thursday. Pin a patient to deviate from the proposal; the projected cost shows before you commit." },
   { id: "v3", label: "v3 · Slot urgency", engine: () => window.ENGINES.v3, choice: true },
   { id: "v4", label: "v4 · Patient urgency", engine: () => window.ENGINES.v4, choice: true },
 ];
@@ -140,13 +140,13 @@ const INTEREST_SCENARIOS = [
       ipat("P2", "Marcus Bell", ["T1", "T3"]),
       ipat("P3", "Priya Nair", ["T1"]),
       ipat("P4", "Leo Tran", ["T2", "T3"])]) },
-  { name: "2 · Offer falls through → backfill steps in", blurb: "Marcus is proposed at Trial A (his only interest), Priya at B; Eleanor is the backfill on both. Advance Marcus's offer and make it fall through — declined, pre-screen ✕, or screen ✕ — and Eleanor is promoted the moment it happens, not at next Thursday's meeting.",
+  { name: "2 · Offer falls through → backfill steps in", blurb: "Eleanor entered the pool first, so the Trial A tie goes to her; Marcus (interested in A only) waits as A's backfill and Priya takes B. Commit Eleanor's offer at A and she shows as ⏸ held on B's bench meanwhile. Make her offer fall through: a decline sends her to the back of future tie-breaks (a screen-fail would keep her seniority), and Marcus is promoted the moment it happens — not at next Thursday's meeting.",
     factory: () => iState([
       ipat("P1", "Eleanor Hughes", ["T1", "T2"]),
       ipat("P2", "Marcus Bell", ["T1"]),
       ipat("P3", "Priya Nair", ["T2"])],
       [ctrial("T1", "Trial A"), ctrial("T2", "Trial B")]) },
-  { name: "3 · Team override (a free pin)", blurb: "Everyone is interested in everything, so any seating fills 3/3 — the proposal you see is one of six equally-optimal plans, and the TEAM breaks the tie, not a queue. Pin Marcus into Trial A from its backfill list: the confirm dialog shows no projected cost, and the optimizer reroutes Eleanor around the pin.",
+  { name: "3 · Team override (a free pin)", blurb: "Everyone is interested in everything, so any seating fills 3/3. Exact ties go to pool seniority (Eleanor entered first, so she holds Trial A), and the TEAM can still overrule: pin Marcus into Trial A from its backfill list — the confirm dialog shows no projected cost, and the optimizer reroutes Eleanor around the pin.",
     factory: () => iState([
       ipat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
       ipat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
@@ -165,7 +165,7 @@ const INTEREST_SCENARIOS = [
         ] }],
       params: { max_match: false },
     }) },
-  { name: "5 · Interest vs ranked queue", blurb: "The same trio as the Patient-choice tab's \"identical rankings\" scenario, but with unordered interest instead of ranks: there is no queue and no ♥ scores, so all six seatings tie and the solver picks one arbitrarily. Preference enters LATER, at the appointment — if the patient wants a different open trial, that's a pin (deviation) with a visible cost. Compare with the queue tab, where preference is encoded upfront and first-come breaks ties.",
+  { name: "5 · Interest vs ranked queue", blurb: "The same trio as the Patient-choice tab's \"identical rankings\" scenario, but with unordered interest instead of ranks: there is no queue and no ♥ scores, so all six seatings tie — and exact ties go to POOL SENIORITY (whoever entered the matching pool first). A voluntary decline resets a patient to the back of future tie-breaks; a screen-fail keeps their place. Preference enters LATER, at the appointment — if the patient wants a different open trial, that's a pin (deviation) with a visible cost. Compare with the queue tab, where preference is encoded upfront and per-trial first-come breaks ties.",
     factory: () => iState([
       ipat("P1", "Eleanor Hughes", ["T1", "T2", "T3"]),
       ipat("P2", "Marcus Bell", ["T1", "T2", "T3"]),
@@ -264,7 +264,17 @@ function ensureInterest(p) {
   if (!Array.isArray(p.interest)) p.interest = [];
   p.interest = p.interest.filter((tid, i) => state.trials.some((t) => t.id === tid) && p.interest.indexOf(tid) === i);
 }
+// pool seniority: lower = entered the matching pool earlier. Breaks EXACT ties
+// only (via the engine's lexicographic refinement). A voluntary decline resets a
+// patient to the back of future tie-breaks; an involuntary screen-fail does not.
+function ensurePoolSeq() {
+  let mx = 0;
+  state.patients.forEach((p) => { if (isFinite(p.pool_seq) && p.pool_seq > mx) mx = p.pool_seq; });
+  state.patients.forEach((p) => { if (!isFinite(p.pool_seq)) p.pool_seq = ++mx; });
+  return mx;
+}
 function applyInterest() {
+  ensurePoolSeq();
   state.patients.forEach((p) => {
     ensureInterest(p);
     p.preferences = {};
@@ -1466,7 +1476,15 @@ function offerFallThrough(p, t, kind) {
   p.interest = (p.interest || []).filter((x) => x !== t.id);
   if (p.pinned === t.id) p.pinned = null;
   if (p.offer && p.offer.trial === t.id) p.offer = null;
-  queueAction(kind === "declined" ? "🙅" : "✕", `${p.name} ${OUTCOME_PHRASE[kind]} ${t.name} — backfill promotes now, not next Thursday.`);
+  // consequence rule: declining is the patient's call — they drop to the back of
+  // future tie-breaks. A failed pre-screen/screen is no fault of theirs — their
+  // pool seniority is untouched. Either way ties are ALL it affects.
+  if (kind === "declined") {
+    p.pool_seq = ensurePoolSeq() + 1;
+    queueAction("🙅", `${p.name} declined the offer at ${t.name} — backfill promotes now; they move to the back of future tie-breaks.`);
+  } else {
+    queueAction("✕", `${p.name} ${OUTCOME_PHRASE[kind]} ${t.name} — backfill promotes now; no fault of theirs, pool seniority kept.`);
+  }
   runAndRender();
 }
 
@@ -1552,11 +1570,11 @@ function interestBoardCard(d) {
       if (p && !enrolledHere) {
         const btns = el("span", { class: "queue-ps" });
         if (stage === "proposed") {
-          btns.appendChild(el("button", { class: "ps-btn pass", title: "the physician presents this trial at next week's appointment — holds the seat", onclick: () => offerStart(p, t) }, "▶ offer"));
+          btns.appendChild(el("button", { class: "ps-btn pass", title: "the physician presents this trial at next week's appointment — holds the seat", onclick: () => offerStart(p, t) }, "▶ commit to offer"));
           if (pinnedHere) btns.appendChild(el("button", { class: "queue-btn", title: "release the team pin — the optimizer decides this seat again", onclick: () => unpin(p) }, "unpin"));
         } else if (stage === "offered") {
-          btns.appendChild(el("button", { class: "ps-btn pass", title: "patient consents — the nurse is pinged to pre-screen", onclick: () => offerConsent(p, t) }, "✓ consents"));
-          btns.appendChild(el("button", { class: "ps-btn fail", title: "patient declines — out of this trial; backfill promotes immediately", onclick: () => offerFallThrough(p, t, "declined") }, "✕ declines"));
+          btns.appendChild(el("button", { class: "ps-btn pass", title: "patient consents — the nurse is pinged to pre-screen", onclick: () => offerConsent(p, t) }, "✓ prescreen"));
+          btns.appendChild(el("button", { class: "ps-btn fail", title: "patient declines — out of this trial; backfill promotes immediately", onclick: () => offerFallThrough(p, t, "declined") }, "✕ patient decline"));
         } else if (stage === "consented") {
           btns.appendChild(el("span", { class: "queue-ps-lbl" }, "pre-screen:"));
           btns.appendChild(el("button", { class: "ps-btn pass", onclick: () => offerPrescreenPass(p, t) }, "✓ pass"));
@@ -1579,7 +1597,18 @@ function interestBoardCard(d) {
 
     // backfill: who the optimizer would seat next if an offer falls through
     const bf = backfillFor(t, d);
-    if (bf.length) {
+    // held: interested + eligible patients whose seat is committed elsewhere (an
+    // offer in flight or a team pin). Not actionable — offering them here too
+    // would double-book one patient against two seats — but they return to this
+    // list automatically if their commitment falls through, so show the bench.
+    const ti = d.trial_ids.indexOf(t.id);
+    const held = state.patients.filter((p) => {
+      const pi = d.patient_ids.indexOf(p.id);
+      return !p.enrolled && p.pinned && p.pinned !== t.id
+        && (p.interest || []).includes(t.id) && !outAt(p, t.id)
+        && pi >= 0 && ti >= 0 && d.eligibility[pi][ti];
+    });
+    if (bf.length || held.length) {
       box.appendChild(el("div", { class: "bf-head" }, "backfill — next in if an offer falls through"));
       bf.forEach((pid, k) => {
         const p = state.patients.find((x) => x.id === pid);
@@ -1592,13 +1621,20 @@ function interestBoardCard(d) {
         ]);
         box.appendChild(row);
       });
+      held.forEach((p) => {
+        box.appendChild(el("div", { class: "queue-row bf-row bf-held" }, [
+          el("span", { class: "queue-pos" }, "⏸"),
+          el("span", { class: "queue-nm clickable", onclick: () => openPatient(p.id) }, p.name),
+          el("span", { class: "queue-status" }, `${p.offer ? "in offer" : "pinned"} at ${trialName(p.pinned)} — returns to this list if it falls through`),
+        ]));
+      });
     }
     trialsBox.appendChild(box);
   });
 
   return el("section", { class: "card" }, [
     trialsBox,
-    el("p", { class: "hint" }, "This board is the Thursday-meeting artifact: the optimizer PROPOSES the fill-maximizing placement over the interest lists, and the team validates it — nothing is recommended to a patient by the system. ▶ offer starts the real-world path (offer → consent → pre-screen → screen → enroll); the seat is held from the moment it's offered. A decline or a failed pre-screen/screen removes the patient from THAT trial only and the backfill promotes in the same re-solve — no waiting for next Thursday. 📌 pin deviates from the proposal (the projected cost shows first); every action lands in the decision log below."),
+    el("p", { class: "hint" }, "This board is the Thursday-meeting artifact: the optimizer PROPOSES the fill-maximizing placement over the interest lists, and the team validates it — nothing is recommended to a patient by the system. ▶ offer starts the real-world path (offer → consent → pre-screen → screen → enroll); the seat is held from the moment it's offered. A decline or a failed pre-screen/screen removes the patient from THAT trial only and the backfill promotes in the same re-solve — no waiting for next Thursday. 📌 pin deviates from the proposal (the projected cost shows first); every action lands in the decision log below. Exact ties break by POOL SENIORITY (earlier into the matching pool wins): a voluntary decline moves the patient to the back of future tie-breaks, while a failed pre-screen/screen keeps their seniority — no fault, no penalty. ⏸ rows are interested patients whose seat is committed elsewhere; they rejoin this backfill automatically if that offer falls through."),
   ]);
 }
 
