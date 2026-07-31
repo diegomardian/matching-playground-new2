@@ -400,7 +400,9 @@ function renderFlowTabs() {
 // hides the sections that don't belong to the active step. The per-section inline
 // display logic (rules by feature, queues by tab) keeps working underneath.
 function applyFlowLayout() {
-  const flow = currentTab().choice || currentTab().interest;
+  // MUST be a real boolean: classList.toggle(cls, undefined) FLIPS instead of removing,
+  // and tabs without an `interest` key would otherwise yield undefined here
+  const flow = !!(currentTab().choice || currentTab().interest);
   $("#flowTabs").style.display = flow ? "" : "none";
   document.body.classList.toggle("flow-active", flow);
   flowSteps().forEach((f) => document.body.classList.toggle("flow-" + f.id, flow && state.flowTab === f.id));
